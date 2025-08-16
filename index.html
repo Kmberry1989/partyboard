@@ -146,7 +146,6 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@18.6.4/dist/tween.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
-    <!-- FIX: Added Tone.js for audio -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
 
     <script>
@@ -161,9 +160,10 @@
         const boardSpaces = [];
         const players = [];
         let activePlayerIndex = 0;
+        // FIX: Adjusted dice tray camera to view the higher tray position
         const gameViews = {
             board: { cameraPos: new THREE.Vector3(15, 20, 12), controlsTarget: new THREE.Vector3(10, 0, -3) },
-            diceTray: { cameraPos: new THREE.Vector3(0, 10, 15), controlsTarget: new THREE.Vector3(0, 1, 0) }
+            diceTray: { cameraPos: new THREE.Vector3(0, 15, 15), controlsTarget: new THREE.Vector3(0, 10, 0) }
         };
         let turnActionQueue = [];
 
@@ -226,7 +226,6 @@
             initPhysics();
             initCardGame();
             
-            // Initialize the synth
             synth = new Tone.Synth().toDestination();
 
             window.addEventListener('resize', onWindowResize, false);
@@ -242,25 +241,30 @@
 
         function createBoard(){
             const spaceSize = 2, spaceGap = 0.5, totalSize = spaceSize + spaceGap, zOffset = -8, startPlatformOffset = -4;
+            // FIX: Extended the path to be longer and more varied.
             const pathData = [
-                {pos:{x:0,z:0},next:[1]}, {pos:{x:1,z:0},next:[2]}, {pos:{x:2,z:0},next:[3]},
-                {pos:{x:3,z:0},next:[4],type:'draw'}, {pos:{x:3,z:1},next:[5]}, {pos:{x:3,z:2},next:[6]},
-                {pos:{x:2,z:2},next:[7]}, {pos:{x:1,z:2},next:[8],type:'discard'}, {pos:{x:0,z:2},next:[9]},
-                {pos:{x:-1,z:2},next:[10]}, {pos:{x:-1,z:3},next:[11],type:'draw'}, {pos:{x:-1,z:4},next:[12]},
-                {pos:{x:0,z:4},next:[13]}, {pos:{x:1,z:4},next:[14]}, {pos:{x:2,z:4},next:[15]},
-                {pos:{x:3,z:4},next:[16]}, {pos:{x:4,z:4},next:[17]}, {pos:{x:5,z:0},next:[18]},
-                {pos:{x:6,z:0},next:[19]}, {pos:{x:7,z:0},next:[]}
+                {pos:{x:0,z:0},next:[1]},{pos:{x:1,z:0},next:[2]},{pos:{x:2,z:0},next:[3]},{pos:{x:3,z:0},next:[4],type:'draw'},
+                {pos:{x:4,z:0},next:[5]},{pos:{x:5,z:0},next:[6]},{pos:{x:5,z:1},next:[7]},{pos:{x:5,z:2},next:[8],type:'discard'},
+                {pos:{x:4,z:2},next:[9]},{pos:{x:3,z:2},next:[10]},{pos:{x:2,z:2},next:[11]},{pos:{x:1,z:2},next:[12]},
+                {pos:{x:0,z:2},next:[13],type:'draw'},{pos:{x:-1,z:2},next:[14]},{pos:{x:-1,z:3},next:[15]},{pos:{x:-1,z:4},next:[16]},
+                {pos:{x:0,z:4},next:[17]},{pos:{x:1,z:4},next:[18],type:'discard'},{pos:{x:2,z:4},next:[19]},{pos:{x:3,z:4},next:[20]},
+                {pos:{x:4,z:4},next:[21]},{pos:{x:5,z:4},next:[22]},{pos:{x:6,z:4},next:[23],type:'draw'},{pos:{x:7,z:4},next:[24]},
+                {pos:{x:8,z:4},next:[25]},{pos:{x:8,z:3},next:[26]},{pos:{x:8,z:2},next:[27]},{pos:{x:8,z:1},next:[28]},
+                {pos:{x:8,z:0},next:[29],type:'discard'},{pos:{x:9,z:0},next:[30]},{pos:{x:10,z:0},next:[]}
             ];
             
             pathData.forEach((data, index) => {
                 const isStart = index === 0;
                 const currentSpaceSize = isStart ? 5 : spaceSize;
-                let color = (index % 2 === 0) ? 0xffffff : 0xaaaaaa;
-                if (isStart) color = 0x00ff00;
-                if (data.next.length === 0) color = 0xffff00;
                 
                 const spaceGeometry = new THREE.BoxGeometry(currentSpaceSize, 0.2, currentSpaceSize);
-                const spaceMaterial = new THREE.MeshStandardMaterial({ color: color });
+                // FIX: Make the starting space a translucent white.
+                const spaceMaterial = isStart 
+                    ? new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })
+                    : new THREE.MeshStandardMaterial({ color: (index % 2 === 0) ? 0xffffff : 0xaaaaaa });
+
+                if (data.next.length === 0) spaceMaterial.color.setHex(0xffff00);
+                
                 const space = new THREE.Mesh(spaceGeometry, spaceMaterial);
                 const yPos = isStart ? 2.0 : 0.1;
                 const zPos = (data.pos.z * totalSize) + zOffset + (isStart ? startPlatformOffset : 0);
@@ -270,7 +274,6 @@
                 space.castShadow = true;
                 space.receiveShadow = true;
                 scene.add(space);
-                // Store the mesh along with other data
                 boardSpaces.push({ mesh: space, position: position, next: data.next, previous: [], type: data.type });
 
                 if (data.type) {
@@ -291,78 +294,120 @@
             });
         }
 
-        function animateMove(player, callback) {
-            const targetPosition = boardSpaces[player.positionIndex].position;
-            const i = player.id;
-            const offsetX = (i % 2 === 0 ? -1 : 1) * 0.3;
-            const offsetZ = (i < 2 ? -1 : 1) * 0.3;
-            const targetY = targetPosition.y;
-            const endPos = new THREE.Vector3(targetPosition.x + offsetX, targetY, targetPosition.z + offsetZ);
-            const isFirstMove = player.previousPositionIndex === 0;
+        function createPlayers(){
+            const loader = new THREE.GLTFLoader();
+            // FIX: Corrected the paths to the player models.
+            const playerModels = [
+                '/players/jonah.glb',
+                '/players/kyle.glb',
+                '/players/rochelle.glb',
+                '/players/vickie.glb'
+            ];
+            const startPosition = boardSpaces[0].position;
 
-            const onStepComplete = () => {
-                // FIX: Glow and play note on touchdown
-                const currentSpaceMesh = boardSpaces[player.positionIndex].mesh;
-                const originalEmissive = currentSpaceMesh.material.emissive.getHex();
-                
-                currentSpaceMesh.material.emissive.setHex(0xffff00);
-                
-                const note = musicalScale[noteCounter % musicalScale.length];
-                synth.triggerAttackRelease(note, "8n");
-                noteCounter++;
+            playerModels.forEach((modelName, i) => {
+                loader.load(modelName, (gltf) => {
+                    const playerMesh = gltf.scene;
+                    playerMesh.scale.set(0.5, 0.5, 0.5);
+                    playerMesh.traverse(function (node) {
+                        if (node.isMesh) { node.castShadow = true; }
+                    });
 
-                setTimeout(() => {
-                    currentSpaceMesh.material.emissive.setHex(originalEmissive);
-                }, 400);
+                    const offsetX = (i % 2 === 0 ? -1 : 1) * 1.5;
+                    const offsetZ = (i < 2 ? -1 : 1) * 1.5;
+                    playerMesh.position.set(startPosition.x + offsetX, startPosition.y, startPosition.z + offsetZ);
+                    
+                    scene.add(playerMesh);
+                    players.push({ mesh: playerMesh, positionIndex: 0, previousPositionIndex: 0, id: i });
+                },
+                undefined,
+                (error) => {
+                    console.error(`An error happened loading model: ${modelName}`, error);
+                });
+            });
+        }
 
-                if (callback) callback();
-            };
-
-            if (isFirstMove) {
-                const startPos = player.mesh.position.clone();
-                const midPos = startPos.clone().lerp(endPos, 0.5);
-                midPos.y += 3;
-                const tweenUp = new TWEEN.Tween(player.mesh.position).to(midPos, 300).easing(TWEEN.Easing.Quadratic.Out);
-                const tweenDown = new TWEEN.Tween(player.mesh.position).to(endPos, 300).easing(TWEEN.Easing.Quadratic.In);
-                tweenUp.chain(tweenDown);
-                tweenDown.onComplete(onStepComplete);
-                tweenUp.start();
-            } else {
-                new TWEEN.Tween(player.mesh.position).to(endPos, 400).easing(TWEEN.Easing.Quadratic.Out).onComplete(onStepComplete).start();
+        function initPhysics(){
+            world = new CANNON.World();
+            world.gravity.set(0, -9.82 * 2, 0);
+            world.broadphase = new CANNON.NaiveBroadphase();
+            world.solver.iterations = 10;
+            
+            for (let i = 0; i < 2; i++) {
+                const diceBody = new CANNON.Body({ mass: 1, shape: new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5)) });
+                const textureLoader = new THREE.TextureLoader();
+                const materials = [
+                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=1') }),
+                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=6') }),
+                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=2') }),
+                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=5') }),
+                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=3') }),
+                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=4') }),
+                ];
+                const threeMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), materials);
+                threeMesh.castShadow = true;
+                world.addBody(diceBody);
+                scene.add(threeMesh);
+                dice.push({ body: diceBody, mesh: threeMesh });
             }
+            
+            // FIX: Elevated the dice tray.
+            const trayPosition = new THREE.Vector3(0, 10, 0);
+            const traySize = 10, wallHeight = 2, wallThickness = 0.5;
+            const floorBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
+            floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            floorBody.position.copy(trayPosition);
+            world.addBody(floorBody);
+            
+            const woodTexture = new THREE.TextureLoader().load('/assets/wood_texture.png');
+            const trayMaterial = new THREE.MeshStandardMaterial({ map: woodTexture });
+
+            const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(traySize, wallThickness, traySize), trayMaterial);
+            floorMesh.position.set(trayPosition.x, trayPosition.y - wallThickness / 2, trayPosition.z);
+            floorMesh.receiveShadow = true;
+            scene.add(floorMesh);
+            
+            [{ p: [0, wallHeight/2, -traySize/2], s: [traySize, wallHeight, wallThickness] },{ p: [0, wallHeight/2, traySize/2], s: [traySize, wallHeight, wallThickness] },{ p: [-t/2, wallHeight/2, 0], s: [wallThickness, wallHeight, traySize] },{ p: [t/2, wallHeight/2, 0], s: [wallThickness, wallHeight, traySize] }].forEach(d => {
+                const wallBody = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(d.s[0]/2, d.s[1]/2, d.s[2]/2)) });
+                wallBody.position.set(trayPosition.x + d.p[0], trayPosition.y + d.p[1], trayPosition.z + d.p[2]);
+                world.addBody(wallBody);
+                const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(...d.s), trayMaterial);
+                wallMesh.position.copy(wallBody.position);
+                wallMesh.castShadow = true;
+                scene.add(wallMesh);
+            });
         }
 
         function startDiceRoll(){
-            // FIX: Start Tone.js audio context on user interaction
             if (Tone.context.state !== 'running') {
                 Tone.context.resume();
             }
-            noteCounter = 0; // Reset scale for the new run
+            noteCounter = 0;
             document.getElementById("diceButton").disabled=true;
             document.getElementById("ui").style.opacity="0";
             switchCameraView("diceTray",()=>{
                 isRollInProgress=true;
                 timeSinceRest=0;
                 dice.forEach((e,t)=>{
-                    e.body.position.set(2*t-1,8,2*(Math.random()-.5));
+                    // FIX: Spawn dice higher to drop into the elevated tray
+                    e.body.position.set(2*t-1, 15, 2*(Math.random()-.5));
                     e.body.velocity.set(4*(Math.random()-.5),2+4*Math.random(),4*(Math.random()-.5));
                     e.body.angularVelocity.set(20*(Math.random()-.5),20*(Math.random()-.5),20*(Math.random()-.5));
                 });
             });
         }
+
+        function checkDiceSettled(e){if(!isRollInProgress)return;let t=!0;const o=.2;dice.forEach(e=>{e.body.velocity.lengthSquared()>o||e.body.angularVelocity.lengthSquared()>o?t=!1:!0}),t?timeSinceRest+=e:timeSinceRest=0,timeSinceRest>.5&&(()=>{let e=!1;const t=dice.map(t=>(t.body.position.y<8&&(e=!0),getDiceResult(t.body)));e?(document.getElementById("message").innerText="Whoops! Fell off. Roll again!",switchCameraView("board",()=>{document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1}),isRollInProgress=!1):finishDiceRoll(t)})()}
         
-        // --- (All other functions remain largely the same) ---
+        // --- (Rest of the functions are unchanged) ---
         
-        function createPlayers(){const e=new THREE.GLTFLoader,t=["kmberry1989/partyboard/partyboard-535beab9a7037963e343756a58444edbfb90b519/players/jonah.glb","kmberry1989/partyboard/partyboard-535beab9a7037963e343756a58444edbfb90b519/players/kyle.glb","kmberry1989/partyboard/partyboard-535beab9a7037963e343756a58444edbfb90b519/players/rochelle.glb","kmberry1989/partyboard/partyboard-535beab9a7037963e343756a58444edbfb90b519/players/vickie.glb"],o=boardSpaces[0].position;t.forEach((a,r)=>{e.load(a,e=>{const t=e.scene;t.scale.set(.5,.5,.5),t.traverse(function(e){e.isMesh&&(e.castShadow=!0)});const a=1.5*(r%2==0?-1:1),d=1.5*(r<2?-1:1);t.position.set(o.x+a,o.y,o.z+d),scene.add(t),players.push({mesh:t,positionIndex:0,previousPositionIndex:0,id:r})},void 0,e=>{console.error(`An error happened loading model: ${a}`,e)})})}
         function initCardGame(){const e=[{title:"Extra Step",desc:"Move 1 extra space."},{title:"Shortcut",desc:"Jump to the next fork."},{title:"Go Back",desc:"Send an opponent back 2 spaces."},{title:"Shield",desc:"Block a negative effect."},{title:"Double Roll",desc:"Roll two dice next turn."}];for(let t=0;t<20;t++)deck.push(e[t%e.length]);deck.sort(()=>.5-Math.random()),drawPile3D=new THREE.Group,discardPile3D=new THREE.Group,drawPile3D.position.set(-8,.1,8),discardPile3D.position.set(8,.1,8),scene.add(drawPile3D,discardPile3D);const t=new THREE.BoxGeometry(2.5,.1,3.5),o=new THREE.MeshBasicMaterial({color:4031222,wireframe:!0}),a=new THREE.MeshBasicMaterial({color:15680580,wireframe:!0}),r=new THREE.Mesh(t,o),d=new THREE.Mesh(t,a);r.position.copy(drawPile3D.position),d.position.copy(discardPile3D.position),scene.add(r,d);for(let i=0;i<4;i++)drawCard(i),drawCard(i);update3DCardPiles(),updateHandUI()}
         function update3DCardPiles(){drawPile3D.children.forEach(e=>drawPile3D.remove(e)),discardPile3D.children.forEach(e=>discardPile3D.remove(e));const e=new THREE.TextureLoader().load("/assets/card_back.png"),t=new THREE.BoxGeometry(2.2,.05,3.2),o=new THREE.MeshStandardMaterial({map:e});for(let a=0;a<deck.length;a++){const e=new THREE.Mesh(t,o);e.position.y=.06*a,drawPile3D.add(e)}for(let r=0;r<discardPile.length;r++){const e=new THREE.Mesh(t,o);e.position.y=.06*r,discardPile3D.add(e)}}
         function drawCard(e){0===deck.length&&(deck=[...discardPile],discardPile=[],deck.sort(()=>.5-Math.random()));const t=deck.pop();t&&playerHands[e].push(t),update3DCardPiles(),updateHandUI()}
         function discardCard(e,t){playerHands[e][t]&&(discardPile.push(playerHands[e].splice(t,1)[0]),update3DCardPiles(),updateHandUI())}
         function updateHandUI(){const e=document.getElementById("playerHand");e.innerHTML="",playerHands[activePlayerIndex].forEach(t=>{const o=document.createElement("div");o.className="card",o.innerHTML=`<div class="card-title">${t.title}</div><div class="card-desc">${t.desc}</div>`,e.appendChild(o)})}
         function handleSpaceAction(e,t){const o=boardSpaces[e.positionIndex];if(!o.type)return void t();"draw"===o.type?(document.getElementById("message").innerText=`Player ${e.id+1} draws a card!`,drawCard(e.id),setTimeout(t,1e3)):"discard"===o.type?0===playerHands[e.id].length?(document.getElementById("message").innerText=`Player ${e.id+1} has no cards to discard.`,setTimeout(t,1e3)):(()=>{const o=document.getElementById("discardChoice"),a=document.getElementById("discardCardContainer");a.innerHTML="",playerHands[e.id].forEach((r,d)=>{const i=document.createElement("div");i.className="card",i.innerHTML=`<div class="card-title">${r.title}</div><div class="card-desc">${r.desc}</div>`,i.onclick=()=>{discardCard(e.id,d),o.style.display="none",t()},a.appendChild(i)}),o.style.display="flex"})():t()}
-        function initPhysics(){world=new CANNON.World,world.gravity.set(0,-19.64,0),world.broadphase=new CANNON.NaiveBroadphase,world.solver.iterations=10;for(let e=0;e<2;e++){const t=new CANNON.Body({mass:1,shape:new CANNON.Box(new CANNON.Vec3(.5,.5,.5))}),o=new THREE.TextureLoader,a=[new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=1")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=6")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=2")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=5")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=3")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=4")})],r=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),a);r.castShadow=!0,world.addBody(t),scene.add(r),dice.push({body:t,mesh:r})}const e=new THREE.Vector3(0,1,0),t=10,o=2,a=.5,r=new CANNON.Body({mass:0,shape:new CANNON.Plane});r.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0),-Math.PI/2),r.position.copy(e),world.addBody(r);const d=new THREE.TextureLoader().load("/assets/wood_texture.png"),i=new THREE.MeshStandardMaterial({map:d}),c=new THREE.Mesh(new THREE.BoxGeometry(t,a,t),i);c.position.set(e.x,e.y-a/2,e.z),c.receiveShadow=!0,scene.add(c),[{p:[0,o/2,-t/2],s:[t,o,a]},{p:[0,o/2,t/2],s:[t,o,a]},{p:[-t/2,o/2,0],s:[a,o,t]},{p:[t/2,o/2,0],s:[a,o,t]}].forEach(t=>{const o=new CANNON.Body({mass:0,shape:new CANNON.Box(new CANNON.Vec3(t.s[0]/2,t.s[1]/2,t.s[2]/2))});o.position.set(e.x+t.p[0],e.y+t.p[1],e.z+t.p[2]),world.addBody(o);const a=new THREE.Mesh(new THREE.BoxGeometry(...t.s),i);a.position.copy(o.position),a.castShadow=!0,scene.add(a)})}
         function finishDiceRoll(e){isRollInProgress=!1;const t=e[0]+e[1];document.getElementById("message").innerText=`Player ${activePlayerIndex+1} rolled ${e[0]} + ${e[1]} = ${t}!`,switchCameraView("board",()=>{turnActionQueue.push(()=>movePlayer(t)),processTurnQueue()})}
-        function checkDiceSettled(e){if(!isRollInProgress)return;let t=!0;const o=.2;dice.forEach(e=>{e.body.velocity.lengthSquared()>o||e.body.angularVelocity.lengthSquared()>o?t=!1:!0}),t?timeSinceRest+=e:timeSinceRest=0,timeSinceRest>.5&&(()=>{let e=!1;const t=dice.map(t=>(t.body.position.y<0&&(e=!0),getDiceResult(t.body)));e?(document.getElementById("message").innerText="Whoops! Fell off. Roll again!",switchCameraView("board",()=>{document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1}),isRollInProgress=!1):finishDiceRoll(t)})()}
         function getDiceResult(e){const t=new CANNON.Vec3(0,1,0);let o=-1,a=-1;return[{v:new CANNON.Vec3(0,0,1),r:1},{v:new CANNON.Vec3(0,0,-1),r:6},{v:new CANNON.Vec3(0,1,0),r:2},{v:new CANNON.Vec3(0,-1,0),r:5},{v:new CANNON.Vec3(1,0,0),r:3},{v:new CANNON.Vec3(-1,0,0),r:4}].forEach(r=>{const d=e.quaternion.vmult(r.v),i=d.dot(t);i>o&&(o=i,a=r.r)}),a}
         function nextTurn(){activePlayerIndex=(activePlayerIndex+1)%players.length,document.getElementById("message").innerText=`Player ${activePlayerIndex+1}'s Turn!`,document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1,updateHandUI(),processTurnQueue()}
         function checkForFaceOff(e,t){const o=e.positionIndex,a=players.find(t=>t.id!==e.id&&t.positionIndex===o);a?startFaceOff(e,a):t()}
