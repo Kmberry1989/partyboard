@@ -99,16 +99,31 @@
             justify-content: center;
         }
         .draw-pile {
-            border: 4px dotted #3b82f6;
+            border: none;
+            background-color: rgba(59,130,246,0.3);
         }
         .discard-pile {
-            border: 4px dotted #ef4444;
+            border: none;
+            background-color: rgba(239,68,68,0.3);
         }
         .pile-label {
             color: white;
             font-weight: 700;
             font-size: 1.25rem;
             text-shadow: 0 2px 4px rgba(0,0,0,0.7);
+        }
+        .player-slot {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .player-thumb {
+            width: 80px;
+            height: 80px;
+            border-radius: 0.5rem;
+            background-color: #1f2937;
+            border: 2px solid #fff;
         }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -120,10 +135,22 @@
         <div id="playerSelect" class="overlay-panel" style="display:flex;">
             <div class="text-white text-lg font-bold mb-4">Choose Your Character</div>
             <div class="flex gap-4">
-                <button class="btn player-select-btn" data-player="0">Jonah</button>
-                <button class="btn player-select-btn" data-player="1">Kyle</button>
-                <button class="btn player-select-btn" data-player="2">Rochelle</button>
-                <button class="btn player-select-btn" data-player="3">Vickie</button>
+                <div class="player-slot">
+                    <div class="player-thumb"></div>
+                    <button class="btn player-select-btn" data-player="0">Jonah</button>
+                </div>
+                <div class="player-slot">
+                    <div class="player-thumb"></div>
+                    <button class="btn player-select-btn" data-player="1">Kyle</button>
+                </div>
+                <div class="player-slot">
+                    <div class="player-thumb"></div>
+                    <button class="btn player-select-btn" data-player="2">Rochelle</button>
+                </div>
+                <div class="player-slot">
+                    <div class="player-thumb"></div>
+                    <button class="btn player-select-btn" data-player="3">Vickie</button>
+                </div>
             </div>
         </div>
         <div id="ui">
@@ -164,6 +191,9 @@
         let dice = [];
         let isRollInProgress = false;
         let timeSinceRest = 0;
+        let ambientLight, directionalLight, sun, moon, minimapRenderer, minimapCamera;
+        const stars = [];
+        let timeOfDay = 0;
 
         // === GAME STATE ===
         const boardSpaces = [];
@@ -209,9 +239,9 @@
             controls.target.copy(gameViews.board.controlsTarget);
             controls.enableDamping = true;
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+            ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
             scene.add(ambientLight);
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
             directionalLight.position.set(20, 40, 10);
             directionalLight.castShadow = true;
             directionalLight.shadow.camera.top = 30;
@@ -238,9 +268,10 @@
 
             createBoard();
             createPlayers(selectedIndex);
-            playerHands = [[]];
+            playerHands = [[], [], [], []];
             initPhysics();
             initCardGame();
+            createEnvironment();
             
             synth = new Tone.Synth().toDestination();
 
@@ -251,6 +282,20 @@
             diceButton.innerText = 'Roll Dice';
             document.getElementById('ui').appendChild(diceButton);
             diceButton.addEventListener('click', startDiceRoll);
+
+            setTimeout(()=>{startDiceRoll();},1000);
+
+            minimapRenderer = new THREE.WebGLRenderer({ antialias: true });
+            minimapRenderer.setSize(200, 200);
+            minimapRenderer.domElement.style.position = 'absolute';
+            minimapRenderer.domElement.style.right = '1rem';
+            minimapRenderer.domElement.style.bottom = '1rem';
+            minimapRenderer.domElement.style.border = '2px solid white';
+            minimapRenderer.domElement.style.borderRadius = '0.5rem';
+            container.appendChild(minimapRenderer.domElement);
+            minimapCamera = new THREE.OrthographicCamera(-20,20,20,-20,0.1,100);
+            minimapCamera.position.set(0,50,0);
+            minimapCamera.lookAt(0,0,0);
 
             animate();
         }
@@ -316,28 +361,84 @@
                 'players/rochelle.glb',
                 'players/vickie.glb'
             ];
-            const modelName = playerModels[selectedIndex];
             const startPosition = boardSpaces[0].position;
 
-            loader.load(modelName, (gltf) => {
-                const playerMesh = gltf.scene;
-                playerMesh.scale.set(0.5, 0.5, 0.5);
-                playerMesh.traverse(function (node) {
-                    if (node.isMesh) { node.castShadow = true; }
+            playerModels.forEach((model, i) => {
+                loader.load(model, (gltf) => {
+                    const mesh = gltf.scene;
+                    mesh.scale.set(0.5, 0.5, 0.5);
+                    mesh.traverse(node => { if (node.isMesh) node.castShadow = true; });
+
+                    const offsetX = (i % 2 === 0 ? -0.6 : 0.6);
+                    const offsetZ = (i < 2 ? -0.6 : 0.6);
+                    mesh.position.set(startPosition.x + offsetX, startPosition.y + PLAYER_Y_OFFSET, startPosition.z + offsetZ);
+                    scene.add(mesh);
+                    players.push({ mesh: mesh, positionIndex: 0, previousPositionIndex: 0, id: i });
+
+                    if (i === selectedIndex) {
+                        activePlayerIndex = i;
+                        updateBoardView();
+                        camera.position.copy(gameViews.board.cameraPos);
+                        controls.target.copy(gameViews.board.controlsTarget);
+                    }
+                }, undefined, (error) => {
+                    console.error(`An error happened loading model: ${model}`, error);
                 });
-
-                playerMesh.position.set(startPosition.x, startPosition.y + PLAYER_Y_OFFSET, startPosition.z);
-                scene.add(playerMesh);
-                players.push({ mesh: playerMesh, positionIndex: 0, previousPositionIndex: 0, id: 0 });
-
-                updateBoardView();
-                camera.position.copy(gameViews.board.cameraPos);
-                controls.target.copy(gameViews.board.controlsTarget);
-            },
-            undefined,
-            (error) => {
-                console.error(`An error happened loading model: ${modelName}`, error);
             });
+        }
+
+        function createEnvironment(){
+            // Trees
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
+            const leafMat = new THREE.MeshStandardMaterial({ color: 0x2e8b57 });
+            for(let i=0;i<20;i++){
+                const tree = new THREE.Group();
+                const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.15,1,8), trunkMat);
+                trunk.position.y = 0.5;
+                const leaves = new THREE.Mesh(new THREE.ConeGeometry(0.6,1.5,8), leafMat);
+                leaves.position.y = 1.25;
+                tree.add(trunk); tree.add(leaves);
+                tree.position.set((Math.random()-0.5)*40,0,(Math.random()-0.5)*40);
+                tree.castShadow = true;
+                scene.add(tree);
+            }
+
+            // Shrubs
+            const bushMat = new THREE.MeshStandardMaterial({ color: 0x228b22 });
+            for(let i=0;i<30;i++){
+                const bush = new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8), bushMat);
+                bush.position.set((Math.random()-0.5)*40,0.2,(Math.random()-0.5)*40);
+                bush.castShadow = true;
+                scene.add(bush);
+            }
+
+            // Clouds
+            const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            for(let i=0;i<10;i++){
+                const cloud = new THREE.Group();
+                for(let j=0;j<3;j++){
+                    const puff = new THREE.Mesh(new THREE.SphereGeometry(1.5,12,12), cloudMat);
+                    puff.position.set(j*1.2,0,Math.random()*0.5);
+                    cloud.add(puff);
+                }
+                cloud.position.set((Math.random()-0.5)*50,15+Math.random()*5,(Math.random()-0.5)*50);
+                scene.add(cloud);
+            }
+
+            // Stars
+            for(let i=0;i<100;i++){
+                const star = new THREE.Mesh(new THREE.SphereGeometry(0.1,6,6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true }));
+                star.position.set((Math.random()-0.5)*200,30+Math.random()*70,(Math.random()-0.5)*200);
+                star.userData.phase = Math.random()*Math.PI*2;
+                stars.push(star);
+                scene.add(star);
+            }
+
+            // Sun and Moon
+            sun = new THREE.Mesh(new THREE.SphereGeometry(2,16,16), new THREE.MeshBasicMaterial({ color: 0xffdd00 }));
+            moon = new THREE.Mesh(new THREE.SphereGeometry(1.5,16,16), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+            scene.add(sun);
+            scene.add(moon);
         }
 
         function createDiceMaterials(){
@@ -447,7 +548,15 @@
         
         function getDiceResult(e){const t=new CANNON.Vec3(0,1,0);let o=-1,a=-1;return[{v:new CANNON.Vec3(0,0,1),r:1},{v:new CANNON.Vec3(0,0,-1),r:6},{v:new CANNON.Vec3(0,1,0),r:2},{v:new CANNON.Vec3(0,-1,0),r:5},{v:new CANNON.Vec3(1,0,0),r:3},{v:new CANNON.Vec3(-1,0,0),r:4}].forEach(r=>{const d=e.quaternion.vmult(r.v),i=d.dot(t);i>o&&(o=i,a=r.r)}),a}
         
-        function nextTurn(){activePlayerIndex=(activePlayerIndex+1)%players.length,document.getElementById("message").innerText=`Player ${activePlayerIndex+1}'s Turn!`,document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1,updateHandUI(),processTurnQueue()}
+        function nextTurn(){
+            activePlayerIndex = (activePlayerIndex + 1) % players.length;
+            document.getElementById("message").innerText = `Player ${activePlayerIndex+1}'s Turn!`;
+            document.getElementById("ui").style.opacity = "1";
+            document.getElementById("diceButton").disabled = false;
+            updateHandUI();
+            processTurnQueue();
+            setTimeout(()=>{ if(!isRollInProgress) startDiceRoll(); },1000);
+        }
         
         function checkForFaceOff(e,t){const o=e.positionIndex,a=players.find(t=>t.id!==e.id&&t.positionIndex===o);a?startFaceOff(e,a):t()}
         
@@ -461,7 +570,38 @@
         
         function movePlayer(e){let t=0;const o=players[activePlayerIndex];!function a(){t>=e?turnActionQueue.push(()=>checkForFaceOff(o,()=>{turnActionQueue.push(()=>handleSpaceAction(o,()=>{turnActionQueue.push(nextTurn),processTurnQueue()})),processTurnQueue()})):(()=>{const e=boardSpaces[o.positionIndex];if(0===e.next.length)return document.getElementById("message").innerText=`Player ${o.id+1} finished!`,turnActionQueue.push(nextTurn),void processTurnQueue();o.previousPositionIndex=o.positionIndex,o.positionIndex=e.next[0],animateMove(o,a)})(),t++}()}
         
-        function animateMove(e,t){const o=boardSpaces[e.positionIndex].position,a=e.id,r=.3*(a%2==0?-1:1),d=.3*(a<2?-1:1),i=o.y+PLAYER_Y_OFFSET,c=new THREE.Vector3(o.x+r,i,o.z+d);const l=()=>{const t=boardSpaces[e.positionIndex].mesh,o=t.material.emissive.getHex();t.material.emissive.setHex(16776960);const a=musicalScale[noteCounter%musicalScale.length];synth.triggerAttackRelease(a,"8n"),noteCounter++,setTimeout(()=>{t.material.emissive.setHex(o)},400),t&&t()};if(0===e.previousPositionIndex){const a=e.mesh.position.clone(),r=a.clone().lerp(c,.5);r.y+=3;const d=new TWEEN.Tween(e.mesh.position).to(r,300).easing(TWEEN.Easing.Quadratic.Out),i=new TWEEN.Tween(e.mesh.position).to(c,300).easing(TWEEN.Easing.Quadratic.In);d.chain(i),i.onComplete(l),d.start()}else new TWEEN.Tween(e.mesh.position).to(c,400).easing(TWEEN.Easing.Quadratic.Out).onComplete(l).start()}
+        function animateMove(player, callback){
+            const targetPos = boardSpaces[player.positionIndex].position;
+            const pid = player.id;
+            const xOffset = 0.3 * (pid % 2 === 0 ? -1 : 1);
+            const zOffset = 0.3 * (pid < 2 ? -1 : 1);
+            const y = targetPos.y + PLAYER_Y_OFFSET;
+            const dest = new THREE.Vector3(targetPos.x + xOffset, y, targetPos.z + zOffset);
+
+            const highlight = () => {
+                const space = boardSpaces[player.positionIndex].mesh;
+                const prevColor = space.material.emissive.getHex();
+                space.material.emissive.setHex(0xffff00);
+                const note = musicalScale[noteCounter % musicalScale.length];
+                synth.triggerAttackRelease(note, "8n");
+                noteCounter++;
+                setTimeout(() => { space.material.emissive.setHex(prevColor); }, 400);
+                if (callback) callback();
+            };
+
+            if (player.previousPositionIndex === 0) {
+                const startPos = player.mesh.position.clone();
+                const peak = startPos.clone().lerp(dest, 0.5);
+                peak.y += 3;
+                const upTween = new TWEEN.Tween(player.mesh.position).to(peak, 300).easing(TWEEN.Easing.Quadratic.Out);
+                const downTween = new TWEEN.Tween(player.mesh.position).to(dest, 300).easing(TWEEN.Easing.Quadratic.In);
+                upTween.chain(downTween);
+                downTween.onComplete(highlight);
+                upTween.start();
+            } else {
+                new TWEEN.Tween(player.mesh.position).to(dest, 400).easing(TWEEN.Easing.Quadratic.Out).onComplete(highlight).start();
+            }
+        }
         
         function updateBoardView(){
             if(players[activePlayerIndex]){
@@ -489,8 +629,53 @@
             }
         }
 
+        function idleCamera(delta){
+            if(currentView==='board'&&!isCameraTransition&&!isRollInProgress&&turnActionQueue.length===0){
+                const center = controls.target;
+                const offset = camera.position.clone().sub(center);
+                offset.applyAxisAngle(new THREE.Vector3(0,1,0), delta*0.1);
+                camera.position.copy(center.clone().add(offset));
+            }
+        }
+
+        function updateEnvironment(delta){
+            timeOfDay = (timeOfDay + delta/60) % 24; // 1 minute real = 1 hour game
+            const angle = (timeOfDay/24) * Math.PI * 2;
+            const radius = 50;
+            sun.position.set(Math.sin(angle)*radius, Math.cos(angle)*radius, 0);
+            moon.position.set(Math.sin(angle+Math.PI)*radius, Math.cos(angle+Math.PI)*radius, 0);
+            directionalLight.position.copy(sun.position);
+            const dayFactor = Math.max(0, Math.cos(angle));
+            directionalLight.intensity = 1.5 * dayFactor;
+            ambientLight.intensity = 0.3 + 0.7 * dayFactor;
+            const dayColor = new THREE.Color(0x87ceeb);
+            const nightColor = new THREE.Color(0x000022);
+            const skyColor = dayColor.clone().lerp(nightColor,1-dayFactor);
+            scene.background = skyColor;
+            scene.fog.color.copy(skyColor);
+            stars.forEach(s=>{ s.material.opacity = 0.5 + 0.5*Math.sin(clock.elapsedTime*2 + s.userData.phase); });
+        }
+
         const clock = new THREE.Clock();
-        function animate(){requestAnimationFrame(animate);const e=clock.getDelta();world.step(1/60,e,3),dice.forEach(e=>{e.mesh.position.copy(e.body.position),e.mesh.quaternion.copy(e.body.quaternion)}),checkDiceSettled(e),controls.update(),TWEEN.update(),followPlayer(),renderer.render(scene,camera)}
+        function animate(){
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            world.step(1/60,delta,3);
+            dice.forEach(d=>{
+                d.mesh.position.copy(d.body.position);
+                d.mesh.quaternion.copy(d.body.quaternion);
+            });
+            checkDiceSettled(delta);
+            controls.update();
+            TWEEN.update();
+            followPlayer();
+            idleCamera(delta);
+            updateEnvironment(delta);
+            renderer.render(scene,camera);
+            if(minimapRenderer&&minimapCamera){
+                minimapRenderer.render(scene,minimapCamera);
+            }
+        }
         
         function onWindowResize(){camera.aspect=window.innerWidth/window.innerHeight,camera.updateProjectionMatrix(),renderer.setSize(window.innerWidth,window.innerHeight)}
         
