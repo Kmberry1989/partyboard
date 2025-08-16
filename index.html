@@ -223,12 +223,12 @@
 
         function createPlayers() {
             const loader = new THREE.GLTFLoader();
-            // FIX: Replaced simple filenames with the full, correct paths for the uploaded models.
+            // Player model files live in the local "players" directory
             const playerModels = [
-                'kmberry1989/partyboard/partyboard-cc66a2d4f557615d58cb0ae92cc547c0169e54eb/players/jonah.glb',
-                'kmberry1989/partyboard/partyboard-cc66a2d4f557615d58cb0ae92cc547c0169e54eb/players/kyle.glb',
-                'kmberry1989/partyboard/partyboard-cc66a2d4f557615d58cb0ae92cc547c0169e54eb/players/rochelle.glb',
-                'kmberry1989/partyboard/partyboard-cc66a2d4f557615d58cb0ae92cc547c0169e54eb/players/vickie.glb'
+                'players/jonah.glb',
+                'players/kyle.glb',
+                'players/rochelle.glb',
+                'players/vickie.glb'
             ];
             const startPosition = boardSpaces[0].position;
 
