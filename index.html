@@ -117,6 +117,15 @@
 </head>
 <body>
     <div id="container">
+        <div id="playerSelect" class="overlay-panel" style="display:flex;">
+            <div class="text-white text-lg font-bold mb-4">Choose Your Character</div>
+            <div class="flex gap-4">
+                <button class="btn player-select-btn" data-player="0">Jonah</button>
+                <button class="btn player-select-btn" data-player="1">Kyle</button>
+                <button class="btn player-select-btn" data-player="2">Rochelle</button>
+                <button class="btn player-select-btn" data-player="3">Vickie</button>
+            </div>
+        </div>
         <div id="ui">
             <div id="message">Player 1's Turn!</div>
         </div>
@@ -162,9 +171,11 @@
         const PLAYER_Y_OFFSET = 0.6;
         let activePlayerIndex = 0;
         const gameViews = {
-            board: { cameraPos: new THREE.Vector3(15, 20, 12), controlsTarget: new THREE.Vector3(10, 0, -3) },
+            board: { cameraPos: new THREE.Vector3(5, 8, 5), controlsTarget: new THREE.Vector3(0, 0, 0) },
             diceTray: { cameraPos: new THREE.Vector3(0, 15, 15), controlsTarget: new THREE.Vector3(0, 10, 0) }
         };
+        let currentView = 'board';
+        let isCameraTransition = false;
         let turnActionQueue = [];
 
         // === CARD GAME STATE ===
@@ -182,17 +193,17 @@
         const musicalScale = ['C4', 'D4', 'E4', 'G4', 'A4', 'C5'];
         let noteCounter = 0;
 
-        function init() {
+        function init(selectedIndex) {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87ceeb);
-            scene.fog = new THREE.Fog(0x87ceeb, 10, 150);
+            scene.fog = new THREE.Fog(0x87ceeb, 10, 60);
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.shadowMap.enabled = true;
             container.appendChild(renderer.domElement);
 
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
             camera.position.copy(gameViews.board.cameraPos);
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.copy(gameViews.board.controlsTarget);
@@ -203,10 +214,10 @@
             const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
             directionalLight.position.set(20, 40, 10);
             directionalLight.castShadow = true;
-            directionalLight.shadow.camera.top = 50;
-            directionalLight.shadow.camera.bottom = -50;
-            directionalLight.shadow.camera.left = -50;
-            directionalLight.shadow.camera.right = 50;
+            directionalLight.shadow.camera.top = 30;
+            directionalLight.shadow.camera.bottom = -30;
+            directionalLight.shadow.camera.left = -30;
+            directionalLight.shadow.camera.right = 30;
             directionalLight.shadow.mapSize.width = 2048;
             directionalLight.shadow.mapSize.height = 2048;
             scene.add(directionalLight);
@@ -215,10 +226,10 @@
             const grassTexture = textureLoader.load('assets/grass_texture.png');
             grassTexture.wrapS = THREE.RepeatWrapping;
             grassTexture.wrapT = THREE.RepeatWrapping;
-            grassTexture.repeat.set(50, 50);
+            grassTexture.repeat.set(10, 10);
 
             const ground = new THREE.Mesh(
-                new THREE.PlaneGeometry(300, 300), 
+                new THREE.PlaneGeometry(60, 60),
                 new THREE.MeshLambertMaterial({ map: grassTexture })
             );
             ground.rotation.x = -Math.PI / 2;
@@ -226,7 +237,8 @@
             scene.add(ground);
 
             createBoard();
-            createPlayers();
+            createPlayers(selectedIndex);
+            playerHands = [[]];
             initPhysics();
             initCardGame();
             
@@ -296,7 +308,7 @@
             });
         }
 
-        function createPlayers(){
+        function createPlayers(selectedIndex){
             const loader = new THREE.GLTFLoader();
             const playerModels = [
                 'players/jonah.glb',
@@ -304,27 +316,27 @@
                 'players/rochelle.glb',
                 'players/vickie.glb'
             ];
+            const modelName = playerModels[selectedIndex];
             const startPosition = boardSpaces[0].position;
 
-            playerModels.forEach((modelName, i) => {
-                loader.load(modelName, (gltf) => {
-                    const playerMesh = gltf.scene;
-                    playerMesh.scale.set(0.5, 0.5, 0.5);
-                    playerMesh.traverse(function (node) {
-                        if (node.isMesh) { node.castShadow = true; }
-                    });
-
-                    const offsetX = (i % 2 === 0 ? -1 : 1) * 1.5;
-                    const offsetZ = (i < 2 ? -1 : 1) * 1.5;
-                    playerMesh.position.set(startPosition.x + offsetX, startPosition.y + PLAYER_Y_OFFSET, startPosition.z + offsetZ);
-                    
-                    scene.add(playerMesh);
-                    players.push({ mesh: playerMesh, positionIndex: 0, previousPositionIndex: 0, id: i });
-                },
-                undefined,
-                (error) => {
-                    console.error(`An error happened loading model: ${modelName}`, error);
+            loader.load(modelName, (gltf) => {
+                const playerMesh = gltf.scene;
+                playerMesh.scale.set(0.5, 0.5, 0.5);
+                playerMesh.traverse(function (node) {
+                    if (node.isMesh) { node.castShadow = true; }
                 });
+
+                playerMesh.position.set(startPosition.x, startPosition.y + PLAYER_Y_OFFSET, startPosition.z);
+                scene.add(playerMesh);
+                players.push({ mesh: playerMesh, positionIndex: 0, previousPositionIndex: 0, id: 0 });
+
+                updateBoardView();
+                camera.position.copy(gameViews.board.cameraPos);
+                controls.target.copy(gameViews.board.controlsTarget);
+            },
+            undefined,
+            (error) => {
+                console.error(`An error happened loading model: ${modelName}`, error);
             });
         }
 
@@ -451,14 +463,44 @@
         
         function animateMove(e,t){const o=boardSpaces[e.positionIndex].position,a=e.id,r=.3*(a%2==0?-1:1),d=.3*(a<2?-1:1),i=o.y+PLAYER_Y_OFFSET,c=new THREE.Vector3(o.x+r,i,o.z+d);const l=()=>{const t=boardSpaces[e.positionIndex].mesh,o=t.material.emissive.getHex();t.material.emissive.setHex(16776960);const a=musicalScale[noteCounter%musicalScale.length];synth.triggerAttackRelease(a,"8n"),noteCounter++,setTimeout(()=>{t.material.emissive.setHex(o)},400),t&&t()};if(0===e.previousPositionIndex){const a=e.mesh.position.clone(),r=a.clone().lerp(c,.5);r.y+=3;const d=new TWEEN.Tween(e.mesh.position).to(r,300).easing(TWEEN.Easing.Quadratic.Out),i=new TWEEN.Tween(e.mesh.position).to(c,300).easing(TWEEN.Easing.Quadratic.In);d.chain(i),i.onComplete(l),d.start()}else new TWEEN.Tween(e.mesh.position).to(c,400).easing(TWEEN.Easing.Quadratic.Out).onComplete(l).start()}
         
-        function switchCameraView(e,t){const o=gameViews[e];new TWEEN.Tween(camera.position).to(o.cameraPos,1e3).easing(TWEEN.Easing.Quadratic.InOut).start(),new TWEEN.Tween(controls.target).to(o.controlsTarget,1e3).easing(TWEEN.Easing.Quadratic.InOut).onComplete(t).start()}
+        function updateBoardView(){
+            if(players[activePlayerIndex]){
+                const pos=players[activePlayerIndex].mesh.position;
+                gameViews.board.cameraPos.set(pos.x+5,pos.y+8,pos.z+5);
+                gameViews.board.controlsTarget.copy(pos);
+            }
+        }
+
+        function switchCameraView(e,t){
+            currentView=e;
+            if(e==="board")updateBoardView();
+            const o=gameViews[e];
+            isCameraTransition=true;
+            new TWEEN.Tween(camera.position).to(o.cameraPos,1e3).easing(TWEEN.Easing.Quadratic.InOut).onComplete(()=>{isCameraTransition=false,t&&t();}).start();
+            new TWEEN.Tween(controls.target).to(o.controlsTarget,1e3).easing(TWEEN.Easing.Quadratic.InOut).start()
+        }
         
+        function followPlayer(){
+            if(currentView==='board'&&!isCameraTransition&&players[activePlayerIndex]){
+                const pos=players[activePlayerIndex].mesh.position;
+                const desired=pos.clone().add(new THREE.Vector3(5,8,5));
+                camera.position.lerp(desired,0.1);
+                controls.target.lerp(pos,0.1);
+            }
+        }
+
         const clock = new THREE.Clock();
-        function animate(){requestAnimationFrame(animate);const e=clock.getDelta();world.step(1/60,e,3),dice.forEach(e=>{e.mesh.position.copy(e.body.position),e.mesh.quaternion.copy(e.body.quaternion)}),checkDiceSettled(e),controls.update(),TWEEN.update(),renderer.render(scene,camera)}
+        function animate(){requestAnimationFrame(animate);const e=clock.getDelta();world.step(1/60,e,3),dice.forEach(e=>{e.mesh.position.copy(e.body.position),e.mesh.quaternion.copy(e.body.quaternion)}),checkDiceSettled(e),controls.update(),TWEEN.update(),followPlayer(),renderer.render(scene,camera)}
         
         function onWindowResize(){camera.aspect=window.innerWidth/window.innerHeight,camera.updateProjectionMatrix(),renderer.setSize(window.innerWidth,window.innerHeight)}
         
-        init();
+        document.querySelectorAll('.player-select-btn').forEach(btn=>{
+            btn.addEventListener('click',()=>{
+                const index=parseInt(btn.getAttribute('data-player'));
+                document.getElementById('playerSelect').style.display='none';
+                init(index);
+            });
+        });
     </script>
 </body>
 </html>
