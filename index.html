@@ -159,6 +159,7 @@
         // === GAME STATE ===
         const boardSpaces = [];
         const players = [];
+        const PLAYER_Y_OFFSET = 0.6;
         let activePlayerIndex = 0;
         const gameViews = {
             board: { cameraPos: new THREE.Vector3(15, 20, 12), controlsTarget: new THREE.Vector3(10, 0, -3) },
@@ -171,6 +172,10 @@
         let discardPile = [];
         let playerHands = [[], [], [], []];
         let drawPile3D, discardPile3D;
+
+        function initCardGame() {}
+        function updateHandUI() {}
+        function handleSpaceAction(player, done) { done(); }
 
         // === AUDIO STATE ===
         let synth;
@@ -311,7 +316,7 @@
 
                     const offsetX = (i % 2 === 0 ? -1 : 1) * 1.5;
                     const offsetZ = (i < 2 ? -1 : 1) * 1.5;
-                    playerMesh.position.set(startPosition.x + offsetX, startPosition.y, startPosition.z + offsetZ);
+                    playerMesh.position.set(startPosition.x + offsetX, startPosition.y + PLAYER_Y_OFFSET, startPosition.z + offsetZ);
                     
                     scene.add(playerMesh);
                     players.push({ mesh: playerMesh, positionIndex: 0, previousPositionIndex: 0, id: i });
@@ -323,6 +328,47 @@
             });
         }
 
+        function createDiceMaterials(){
+            const size = 128;
+            const drawFace = (spots) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0,0,size,size);
+                ctx.fillStyle = '#000000';
+                const r = size * 0.08;
+                const pos = {
+                    tl:[size*0.25,size*0.25], tc:[size*0.5,size*0.25], tr:[size*0.75,size*0.25],
+                    ml:[size*0.25,size*0.5],  mc:[size*0.5,size*0.5],  mr:[size*0.75,size*0.5],
+                    bl:[size*0.25,size*0.75], bc:[size*0.5,size*0.75], br:[size*0.75,size*0.75]
+                };
+                spots.forEach(key => {
+                    const [x,y] = pos[key];
+                    ctx.beginPath();
+                    ctx.arc(x,y,r,0,Math.PI*2);
+                    ctx.fill();
+                });
+                return new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(canvas) });
+            };
+            const faces = {
+                1:['mc'],
+                2:['tl','br'],
+                3:['tl','mc','br'],
+                4:['tl','tr','bl','br'],
+                5:['tl','tr','mc','bl','br'],
+                6:['tl','ml','bl','tr','mr','br']
+            };
+            return [
+                drawFace(faces[1]),
+                drawFace(faces[6]),
+                drawFace(faces[2]),
+                drawFace(faces[5]),
+                drawFace(faces[3]),
+                drawFace(faces[4])
+            ];
+        }
+
         function initPhysics(){
             world = new CANNON.World();
             world.gravity.set(0, -9.82 * 2, 0);
@@ -331,15 +377,7 @@
             
             for (let i = 0; i < 2; i++) {
                 const diceBody = new CANNON.Body({ mass: 1, shape: new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5)) });
-                const textureLoader = new THREE.TextureLoader();
-                const materials = [
-                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=1') }),
-                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=6') }),
-                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=2') }),
-                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=5') }),
-                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=3') }),
-                    new THREE.MeshStandardMaterial({ map: textureLoader.load('https://placehold.co/128x128/FFF/000?text=4') }),
-                ];
+                const materials = createDiceMaterials();
                 const threeMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), materials);
                 threeMesh.castShadow = true;
                 world.addBody(diceBody);
@@ -411,7 +449,7 @@
         
         function movePlayer(e){let t=0;const o=players[activePlayerIndex];!function a(){t>=e?turnActionQueue.push(()=>checkForFaceOff(o,()=>{turnActionQueue.push(()=>handleSpaceAction(o,()=>{turnActionQueue.push(nextTurn),processTurnQueue()})),processTurnQueue()})):(()=>{const e=boardSpaces[o.positionIndex];if(0===e.next.length)return document.getElementById("message").innerText=`Player ${o.id+1} finished!`,turnActionQueue.push(nextTurn),void processTurnQueue();o.previousPositionIndex=o.positionIndex,o.positionIndex=e.next[0],animateMove(o,a)})(),t++}()}
         
-        function animateMove(e,t){const o=boardSpaces[e.positionIndex].position,a=e.id,r=.3*(a%2==0?-1:1),d=.3*(a<2?-1:1),i=o.y,c=new THREE.Vector3(o.x+r,i,o.z+d);const l=()=>{const t=boardSpaces[e.positionIndex].mesh,o=t.material.emissive.getHex();t.material.emissive.setHex(16776960);const a=musicalScale[noteCounter%musicalScale.length];synth.triggerAttackRelease(a,"8n"),noteCounter++,setTimeout(()=>{t.material.emissive.setHex(o)},400),t&&t()};if(0===e.previousPositionIndex){const a=e.mesh.position.clone(),r=a.clone().lerp(c,.5);r.y+=3;const d=new TWEEN.Tween(e.mesh.position).to(r,300).easing(TWEEN.Easing.Quadratic.Out),i=new TWEEN.Tween(e.mesh.position).to(c,300).easing(TWEEN.Easing.Quadratic.In);d.chain(i),i.onComplete(l),d.start()}else new TWEEN.Tween(e.mesh.position).to(c,400).easing(TWEEN.Easing.Quadratic.Out).onComplete(l).start()}
+        function animateMove(e,t){const o=boardSpaces[e.positionIndex].position,a=e.id,r=.3*(a%2==0?-1:1),d=.3*(a<2?-1:1),i=o.y+PLAYER_Y_OFFSET,c=new THREE.Vector3(o.x+r,i,o.z+d);const l=()=>{const t=boardSpaces[e.positionIndex].mesh,o=t.material.emissive.getHex();t.material.emissive.setHex(16776960);const a=musicalScale[noteCounter%musicalScale.length];synth.triggerAttackRelease(a,"8n"),noteCounter++,setTimeout(()=>{t.material.emissive.setHex(o)},400),t&&t()};if(0===e.previousPositionIndex){const a=e.mesh.position.clone(),r=a.clone().lerp(c,.5);r.y+=3;const d=new TWEEN.Tween(e.mesh.position).to(r,300).easing(TWEEN.Easing.Quadratic.Out),i=new TWEEN.Tween(e.mesh.position).to(c,300).easing(TWEEN.Easing.Quadratic.In);d.chain(i),i.onComplete(l),d.start()}else new TWEEN.Tween(e.mesh.position).to(c,400).easing(TWEEN.Easing.Quadratic.Out).onComplete(l).start()}
         
         function switchCameraView(e,t){const o=gameViews[e];new TWEEN.Tween(camera.position).to(o.cameraPos,1e3).easing(TWEEN.Easing.Quadratic.InOut).start(),new TWEEN.Tween(controls.target).to(o.controlsTarget,1e3).easing(TWEEN.Easing.Quadratic.InOut).onComplete(t).start()}
         
