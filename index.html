@@ -160,7 +160,6 @@
         const boardSpaces = [];
         const players = [];
         let activePlayerIndex = 0;
-        // FIX: Adjusted dice tray camera to view the higher tray position
         const gameViews = {
             board: { cameraPos: new THREE.Vector3(15, 20, 12), controlsTarget: new THREE.Vector3(10, 0, -3) },
             diceTray: { cameraPos: new THREE.Vector3(0, 15, 15), controlsTarget: new THREE.Vector3(0, 10, 0) }
@@ -208,7 +207,7 @@
             scene.add(directionalLight);
 
             const textureLoader = new THREE.TextureLoader();
-            const grassTexture = textureLoader.load('/assets/grass_texture.png');
+            const grassTexture = textureLoader.load('assets/grass_texture.png');
             grassTexture.wrapS = THREE.RepeatWrapping;
             grassTexture.wrapT = THREE.RepeatWrapping;
             grassTexture.repeat.set(50, 50);
@@ -241,7 +240,6 @@
 
         function createBoard(){
             const spaceSize = 2, spaceGap = 0.5, totalSize = spaceSize + spaceGap, zOffset = -8, startPlatformOffset = -4;
-            // FIX: Extended the path to be longer and more varied.
             const pathData = [
                 {pos:{x:0,z:0},next:[1]},{pos:{x:1,z:0},next:[2]},{pos:{x:2,z:0},next:[3]},{pos:{x:3,z:0},next:[4],type:'draw'},
                 {pos:{x:4,z:0},next:[5]},{pos:{x:5,z:0},next:[6]},{pos:{x:5,z:1},next:[7]},{pos:{x:5,z:2},next:[8],type:'discard'},
@@ -258,7 +256,6 @@
                 const currentSpaceSize = isStart ? 5 : spaceSize;
                 
                 const spaceGeometry = new THREE.BoxGeometry(currentSpaceSize, 0.2, currentSpaceSize);
-                // FIX: Make the starting space a translucent white.
                 const spaceMaterial = isStart 
                     ? new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })
                     : new THREE.MeshStandardMaterial({ color: (index % 2 === 0) ? 0xffffff : 0xaaaaaa });
@@ -296,12 +293,11 @@
 
         function createPlayers(){
             const loader = new THREE.GLTFLoader();
-            // FIX: Corrected the paths to the player models.
             const playerModels = [
-                '/players/jonah.glb',
-                '/players/kyle.glb',
-                '/players/rochelle.glb',
-                '/players/vickie.glb'
+                'players/jonah.glb',
+                'players/kyle.glb',
+                'players/rochelle.glb',
+                'players/vickie.glb'
             ];
             const startPosition = boardSpaces[0].position;
 
@@ -351,7 +347,6 @@
                 dice.push({ body: diceBody, mesh: threeMesh });
             }
             
-            // FIX: Elevated the dice tray.
             const trayPosition = new THREE.Vector3(0, 10, 0);
             const traySize = 10, wallHeight = 2, wallThickness = 0.5;
             const floorBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
@@ -359,7 +354,7 @@
             floorBody.position.copy(trayPosition);
             world.addBody(floorBody);
             
-            const woodTexture = new THREE.TextureLoader().load('/assets/wood_texture.png');
+            const woodTexture = new THREE.TextureLoader().load('assets/wood_texture.png');
             const trayMaterial = new THREE.MeshStandardMaterial({ map: woodTexture });
 
             const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(traySize, wallThickness, traySize), trayMaterial);
@@ -367,7 +362,7 @@
             floorMesh.receiveShadow = true;
             scene.add(floorMesh);
             
-            [{ p: [0, wallHeight/2, -traySize/2], s: [traySize, wallHeight, wallThickness] },{ p: [0, wallHeight/2, traySize/2], s: [traySize, wallHeight, wallThickness] },{ p: [-t/2, wallHeight/2, 0], s: [wallThickness, wallHeight, traySize] },{ p: [t/2, wallHeight/2, 0], s: [wallThickness, wallHeight, traySize] }].forEach(d => {
+            [{ p: [0, wallHeight/2, -traySize/2], s: [traySize, wallHeight, wallThickness] },{ p: [0, wallHeight/2, traySize/2], s: [traySize, wallHeight, wallThickness] },{ p: [-traySize/2, wallHeight/2, 0], s: [wallThickness, wallHeight, traySize] },{ p: [traySize/2, wallHeight/2, 0], s: [wallThickness, wallHeight, traySize] }].forEach(d => {
                 const wallBody = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(d.s[0]/2, d.s[1]/2, d.s[2]/2)) });
                 wallBody.position.set(trayPosition.x + d.p[0], trayPosition.y + d.p[1], trayPosition.z + d.p[2]);
                 world.addBody(wallBody);
@@ -389,7 +384,6 @@
                 isRollInProgress=true;
                 timeSinceRest=0;
                 dice.forEach((e,t)=>{
-                    // FIX: Spawn dice higher to drop into the elevated tray
                     e.body.position.set(2*t-1, 15, 2*(Math.random()-.5));
                     e.body.velocity.set(4*(Math.random()-.5),2+4*Math.random(),4*(Math.random()-.5));
                     e.body.angularVelocity.set(20*(Math.random()-.5),20*(Math.random()-.5),20*(Math.random()-.5));
@@ -397,28 +391,33 @@
             });
         }
 
+        function finishDiceRoll(e){isRollInProgress=!1;const t=e[0]+e[1];document.getElementById("message").innerText=`Player ${activePlayerIndex+1} rolled ${e[0]} + ${e[1]} = ${t}!`,switchCameraView("board",()=>{turnActionQueue.push(()=>movePlayer(t)),processTurnQueue()})}
+        
         function checkDiceSettled(e){if(!isRollInProgress)return;let t=!0;const o=.2;dice.forEach(e=>{e.body.velocity.lengthSquared()>o||e.body.angularVelocity.lengthSquared()>o?t=!1:!0}),t?timeSinceRest+=e:timeSinceRest=0,timeSinceRest>.5&&(()=>{let e=!1;const t=dice.map(t=>(t.body.position.y<8&&(e=!0),getDiceResult(t.body)));e?(document.getElementById("message").innerText="Whoops! Fell off. Roll again!",switchCameraView("board",()=>{document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1}),isRollInProgress=!1):finishDiceRoll(t)})()}
         
-        // --- (Rest of the functions are unchanged) ---
-        
-        function initCardGame(){const e=[{title:"Extra Step",desc:"Move 1 extra space."},{title:"Shortcut",desc:"Jump to the next fork."},{title:"Go Back",desc:"Send an opponent back 2 spaces."},{title:"Shield",desc:"Block a negative effect."},{title:"Double Roll",desc:"Roll two dice next turn."}];for(let t=0;t<20;t++)deck.push(e[t%e.length]);deck.sort(()=>.5-Math.random()),drawPile3D=new THREE.Group,discardPile3D=new THREE.Group,drawPile3D.position.set(-8,.1,8),discardPile3D.position.set(8,.1,8),scene.add(drawPile3D,discardPile3D);const t=new THREE.BoxGeometry(2.5,.1,3.5),o=new THREE.MeshBasicMaterial({color:4031222,wireframe:!0}),a=new THREE.MeshBasicMaterial({color:15680580,wireframe:!0}),r=new THREE.Mesh(t,o),d=new THREE.Mesh(t,a);r.position.copy(drawPile3D.position),d.position.copy(discardPile3D.position),scene.add(r,d);for(let i=0;i<4;i++)drawCard(i),drawCard(i);update3DCardPiles(),updateHandUI()}
-        function update3DCardPiles(){drawPile3D.children.forEach(e=>drawPile3D.remove(e)),discardPile3D.children.forEach(e=>discardPile3D.remove(e));const e=new THREE.TextureLoader().load("/assets/card_back.png"),t=new THREE.BoxGeometry(2.2,.05,3.2),o=new THREE.MeshStandardMaterial({map:e});for(let a=0;a<deck.length;a++){const e=new THREE.Mesh(t,o);e.position.y=.06*a,drawPile3D.add(e)}for(let r=0;r<discardPile.length;r++){const e=new THREE.Mesh(t,o);e.position.y=.06*r,discardPile3D.add(e)}}
-        function drawCard(e){0===deck.length&&(deck=[...discardPile],discardPile=[],deck.sort(()=>.5-Math.random()));const t=deck.pop();t&&playerHands[e].push(t),update3DCardPiles(),updateHandUI()}
-        function discardCard(e,t){playerHands[e][t]&&(discardPile.push(playerHands[e].splice(t,1)[0]),update3DCardPiles(),updateHandUI())}
-        function updateHandUI(){const e=document.getElementById("playerHand");e.innerHTML="",playerHands[activePlayerIndex].forEach(t=>{const o=document.createElement("div");o.className="card",o.innerHTML=`<div class="card-title">${t.title}</div><div class="card-desc">${t.desc}</div>`,e.appendChild(o)})}
-        function handleSpaceAction(e,t){const o=boardSpaces[e.positionIndex];if(!o.type)return void t();"draw"===o.type?(document.getElementById("message").innerText=`Player ${e.id+1} draws a card!`,drawCard(e.id),setTimeout(t,1e3)):"discard"===o.type?0===playerHands[e.id].length?(document.getElementById("message").innerText=`Player ${e.id+1} has no cards to discard.`,setTimeout(t,1e3)):(()=>{const o=document.getElementById("discardChoice"),a=document.getElementById("discardCardContainer");a.innerHTML="",playerHands[e.id].forEach((r,d)=>{const i=document.createElement("div");i.className="card",i.innerHTML=`<div class="card-title">${r.title}</div><div class="card-desc">${r.desc}</div>`,i.onclick=()=>{discardCard(e.id,d),o.style.display="none",t()},a.appendChild(i)}),o.style.display="flex"})():t()}
-        function finishDiceRoll(e){isRollInProgress=!1;const t=e[0]+e[1];document.getElementById("message").innerText=`Player ${activePlayerIndex+1} rolled ${e[0]} + ${e[1]} = ${t}!`,switchCameraView("board",()=>{turnActionQueue.push(()=>movePlayer(t)),processTurnQueue()})}
         function getDiceResult(e){const t=new CANNON.Vec3(0,1,0);let o=-1,a=-1;return[{v:new CANNON.Vec3(0,0,1),r:1},{v:new CANNON.Vec3(0,0,-1),r:6},{v:new CANNON.Vec3(0,1,0),r:2},{v:new CANNON.Vec3(0,-1,0),r:5},{v:new CANNON.Vec3(1,0,0),r:3},{v:new CANNON.Vec3(-1,0,0),r:4}].forEach(r=>{const d=e.quaternion.vmult(r.v),i=d.dot(t);i>o&&(o=i,a=r.r)}),a}
+        
         function nextTurn(){activePlayerIndex=(activePlayerIndex+1)%players.length,document.getElementById("message").innerText=`Player ${activePlayerIndex+1}'s Turn!`,document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1,updateHandUI(),processTurnQueue()}
+        
         function checkForFaceOff(e,t){const o=e.positionIndex,a=players.find(t=>t.id!==e.id&&t.positionIndex===o);a?startFaceOff(e,a):t()}
+        
         function startFaceOff(e,t){const o=document.getElementById("minigameFaceoff");document.getElementById("faceoffPlayers").innerText=`Player ${e.id+1} vs Player ${t.id+1}`,o.style.display="flex",document.getElementById("startFaceoffBtn").onclick=()=>{o.style.display="none",resolveFaceOff(e,t)}}
+        
         function resolveFaceOff(e,t){const o=.5>Math.random()?e:t,a=o===e?t:e;document.getElementById("message").innerText=`Player ${o.id+1} wins the face-off!`,movePlayerBack(a,3,()=>{processTurnQueue()})}
+        
         function movePlayerBack(e,t,o){let a=0;!function r(){a>=t||0===e.positionIndex?o():void 0!==(d=boardSpaces[e.positionIndex].previous[0])?(e.previousPositionIndex=e.positionIndex,e.positionIndex=d,animateMove(e,r)):o();var d;a++}()}
+        
         function processTurnQueue(){if(turnActionQueue.length>0){(0,turnActionQueue.shift())()}}
+        
         function movePlayer(e){let t=0;const o=players[activePlayerIndex];!function a(){t>=e?turnActionQueue.push(()=>checkForFaceOff(o,()=>{turnActionQueue.push(()=>handleSpaceAction(o,()=>{turnActionQueue.push(nextTurn),processTurnQueue()})),processTurnQueue()})):(()=>{const e=boardSpaces[o.positionIndex];if(0===e.next.length)return document.getElementById("message").innerText=`Player ${o.id+1} finished!`,turnActionQueue.push(nextTurn),void processTurnQueue();o.previousPositionIndex=o.positionIndex,o.positionIndex=e.next[0],animateMove(o,a)})(),t++}()}
+        
+        function animateMove(e,t){const o=boardSpaces[e.positionIndex].position,a=e.id,r=.3*(a%2==0?-1:1),d=.3*(a<2?-1:1),i=o.y,c=new THREE.Vector3(o.x+r,i,o.z+d);const l=()=>{const t=boardSpaces[e.positionIndex].mesh,o=t.material.emissive.getHex();t.material.emissive.setHex(16776960);const a=musicalScale[noteCounter%musicalScale.length];synth.triggerAttackRelease(a,"8n"),noteCounter++,setTimeout(()=>{t.material.emissive.setHex(o)},400),t&&t()};if(0===e.previousPositionIndex){const a=e.mesh.position.clone(),r=a.clone().lerp(c,.5);r.y+=3;const d=new TWEEN.Tween(e.mesh.position).to(r,300).easing(TWEEN.Easing.Quadratic.Out),i=new TWEEN.Tween(e.mesh.position).to(c,300).easing(TWEEN.Easing.Quadratic.In);d.chain(i),i.onComplete(l),d.start()}else new TWEEN.Tween(e.mesh.position).to(c,400).easing(TWEEN.Easing.Quadratic.Out).onComplete(l).start()}
+        
         function switchCameraView(e,t){const o=gameViews[e];new TWEEN.Tween(camera.position).to(o.cameraPos,1e3).easing(TWEEN.Easing.Quadratic.InOut).start(),new TWEEN.Tween(controls.target).to(o.controlsTarget,1e3).easing(TWEEN.Easing.Quadratic.InOut).onComplete(t).start()}
+        
         const clock = new THREE.Clock();
         function animate(){requestAnimationFrame(animate);const e=clock.getDelta();world.step(1/60,e,3),dice.forEach(e=>{e.mesh.position.copy(e.body.position),e.mesh.quaternion.copy(e.body.quaternion)}),checkDiceSettled(e),controls.update(),TWEEN.update(),renderer.render(scene,camera)}
+        
         function onWindowResize(){camera.aspect=window.innerWidth/window.innerHeight,camera.updateProjectionMatrix(),renderer.setSize(window.innerWidth,window.innerHeight)}
         
         init();
