@@ -159,9 +159,10 @@
         const boardSpaces = [];
         const players = [];
         let activePlayerIndex = 0;
+        const diceTrayPosition = new THREE.Vector3(-15, 5, 0);
         const gameViews = {
             board: { cameraPos: new THREE.Vector3(15, 20, 12), controlsTarget: new THREE.Vector3(10, 0, -3) },
-            diceTray: { cameraPos: new THREE.Vector3(0, 10, 15), controlsTarget: new THREE.Vector3(0, 1, 0) }
+            diceTray: { cameraPos: diceTrayPosition.clone().add(new THREE.Vector3(0, 4, 12)), controlsTarget: diceTrayPosition.clone() }
         };
         let turnActionQueue = [];
 
@@ -205,6 +206,8 @@
             ground.receiveShadow = true;
             scene.add(ground);
 
+            addClouds();
+
             createBoard();
             createPlayers();
             initPhysics();
@@ -223,29 +226,32 @@
 
         function createPlayers() {
             const loader = new THREE.GLTFLoader();
-            // FIX: Replaced simple filenames with the full, correct paths for the uploaded models.
+            // Player model files live in the local "players" directory
             const playerModels = [
-                'kmberry1989/partyboard/partyboard-cc66a2d4f557615d58cb0ae92cc547c0169e54eb/players/jonah.glb',
-                'kmberry1989/partyboard/partyboard-cc66a2d4f557615d58cb0ae92cc547c0169e54eb/players/kyle.glb',
-                'kmberry1989/partyboard/partyboard-cc66a2d4f557615d58cb0ae92cc547c0169e54eb/players/rochelle.glb',
-                'kmberry1989/partyboard/partyboard-cc66a2d4f557615d58cb0ae92cc547c0169e54eb/players/vickie.glb'
+                'players/jonah.glb',
+                'players/kyle.glb',
+                'players/rochelle.glb',
+                'players/vickie.glb'
             ];
             const startPosition = boardSpaces[0].position;
 
             playerModels.forEach((modelName, i) => {
                 loader.load(modelName, (gltf) => {
                     const playerMesh = gltf.scene;
-                    playerMesh.scale.set(0.5, 0.5, 0.5); // Adjust scale as needed
+                    playerMesh.scale.set(2, 2, 2);
                     playerMesh.traverse(function (node) {
                         if (node.isMesh) { node.castShadow = true; }
                     });
 
-                    const offsetX = (i % 2 === 0 ? -1 : 1) * 1.5;
-                    const offsetZ = (i < 2 ? -1 : 1) * 1.5;
+                    const offsetX = (i % 2 === 0 ? -1 : 1) * 3;
+                    const offsetZ = (i < 2 ? -1 : 1) * 3;
                     playerMesh.position.set(startPosition.x + offsetX, startPosition.y, startPosition.z + offsetZ);
-                    
+
                     scene.add(playerMesh);
                     players.push({ mesh: playerMesh, positionIndex: 0, previousPositionIndex: 0, id: i });
+                    if (players.length === playerModels.length) {
+                        focusOnPlayer(players[activePlayerIndex]);
+                    }
                 },
                 undefined, // onProgress callback (optional)
                 (error) => {
@@ -271,8 +277,8 @@
 
             drawPile3D = new THREE.Group();
             discardPile3D = new THREE.Group();
-            drawPile3D.position.set(-8, 0.1, 8);
-            discardPile3D.position.set(8, 0.1, 8);
+            drawPile3D.position.set(5, 0.1, -5);
+            discardPile3D.position.set(7.5, 0.1, -5);
             scene.add(drawPile3D, discardPile3D);
             
             const outlineGeo = new THREE.BoxGeometry(2.5, 0.1, 3.5);
@@ -333,14 +339,25 @@
                 updateHandUI();
             }
         }
-        
+
+        function playCard(playerIndex, cardIndex) {
+            const card = playerHands[playerIndex][cardIndex];
+            if (!card) { return; }
+            discardCard(playerIndex, cardIndex);
+            if (card.title === "Extra Step") {
+                turnActionQueue.push(() => movePlayer(1));
+                processTurnQueue();
+            }
+        }
+
         function updateHandUI() {
             const handContainer = document.getElementById('playerHand');
             handContainer.innerHTML = '';
-            playerHands[activePlayerIndex].forEach(card => {
+            playerHands[activePlayerIndex].forEach((card, idx) => {
                 const cardEl = document.createElement('div');
                 cardEl.className = 'card';
                 cardEl.innerHTML = `<div class="card-title">${card.title}</div><div class="card-desc">${card.desc}</div>`;
+                cardEl.onclick = () => playCard(activePlayerIndex, idx);
                 handContainer.appendChild(cardEl);
             });
         }
@@ -434,12 +451,78 @@
             }
         }
 
-        function initPhysics(){world=new CANNON.World,world.gravity.set(0,-19.64,0),world.broadphase=new CANNON.NaiveBroadphase,world.solver.iterations=10;for(let e=0;e<2;e++){const t=new CANNON.Body({mass:1,shape:new CANNON.Box(new CANNON.Vec3(.5,.5,.5))}),o=new THREE.TextureLoader,a=[new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=1")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=6")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=2")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=5")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=3")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=4")})],n=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),a);n.castShadow=!0,world.addBody(t),scene.add(n),dice.push({body:t,mesh:n})}const e=new THREE.Vector3(0,1,0),t=10,o=2,a=.5,n=new CANNON.Body({mass:0,shape:new CANNON.Plane});n.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0),-Math.PI/2),n.position.copy(e),world.addBody(n);const i=new THREE.Mesh(new THREE.BoxGeometry(t,a,t),new THREE.MeshStandardMaterial({color:9127187,transparent:!0,opacity:.8}));i.position.set(e.x,e.y-a/2,e.z),i.receiveShadow=!0,scene.add(i),[{p:[0,o/2,-t/2],s:[t,o,a]},{p:[0,o/2,t/2],s:[t,o,a]},{p:[-t/2,o/2,0],s:[a,o,t]},{p:[t/2,o/2,0],s:[a,o,t]}].forEach(t=>{const n=new CANNON.Body({mass:0,shape:new CANNON.Box(new CANNON.Vec3(t.s[0]/2,t.s[1]/2,t.s[2]/2))});n.position.set(e.x+t.p[0],e.y+t.p[1],e.z+t.p[2]),world.addBody(n);const i=new THREE.Mesh(new THREE.BoxGeometry(...t.s),new THREE.MeshStandardMaterial({color:9127187,transparent:!0,opacity:.8}));i.position.copy(n.position),i.castShadow=!0,scene.add(i)})}
-        function startDiceRoll(){document.getElementById("diceButton").disabled=!0,document.getElementById("ui").style.opacity="0",switchCameraView("diceTray",()=>{isRollInProgress=!0,timeSinceRest=0,dice.forEach((e,t)=>{e.body.position.set(2*t-1,8,2*(Math.random()-.5)),e.body.velocity.set(4*(Math.random()-.5),2+4*Math.random(),4*(Math.random()-.5)),e.body.angularVelocity.set(20*(Math.random()-.5),20*(Math.random()-.5),20*(Math.random()-.5))})})}
+        function initPhysics() {
+            world = new CANNON.World;
+            world.gravity.set(0, -19.64, 0);
+            world.broadphase = new CANNON.NaiveBroadphase;
+            world.solver.iterations = 10;
+            for (let e = 0; e < 2; e++) {
+                const t = new CANNON.Body({ mass: 1, shape: new CANNON.Box(new CANNON.Vec3(.5, .5, .5)) });
+                const o = new THREE.TextureLoader;
+                const a = [
+                    new THREE.MeshStandardMaterial({ map: o.load("https://placehold.co/128x128/FFF/000?text=1") }),
+                    new THREE.MeshStandardMaterial({ map: o.load("https://placehold.co/128x128/FFF/000?text=6") }),
+                    new THREE.MeshStandardMaterial({ map: o.load("https://placehold.co/128x128/FFF/000?text=2") }),
+                    new THREE.MeshStandardMaterial({ map: o.load("https://placehold.co/128x128/FFF/000?text=5") }),
+                    new THREE.MeshStandardMaterial({ map: o.load("https://placehold.co/128x128/FFF/000?text=3") }),
+                    new THREE.MeshStandardMaterial({ map: o.load("https://placehold.co/128x128/FFF/000?text=4") })
+                ];
+                const n = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), a);
+                n.castShadow = !0;
+                world.addBody(t);
+                scene.add(n);
+                dice.push({ body: t, mesh: n });
+            }
+            const e = diceTrayPosition.clone(), t = 10, o = 2, a = .5;
+            const n = new CANNON.Body({ mass: 0, shape: new CANNON.Plane });
+            n.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            n.position.copy(e);
+            world.addBody(n);
+            const i = new THREE.Mesh(new THREE.BoxGeometry(t, a, t), new THREE.MeshStandardMaterial({ color: 9127187, transparent: !0, opacity: .8 }));
+            i.position.set(e.x, e.y - a / 2, e.z);
+            i.receiveShadow = !0;
+            scene.add(i);
+            [
+                { p: [0, o / 2, -t / 2], s: [t, o, a] },
+                { p: [0, o / 2, t / 2], s: [t, o, a] },
+                { p: [-t / 2, o / 2, 0], s: [a, o, t] },
+                { p: [t / 2, o / 2, 0], s: [a, o, t] }
+            ].forEach(t => {
+                const n = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(t.s[0] / 2, t.s[1] / 2, t.s[2] / 2)) });
+                n.position.set(e.x + t.p[0], e.y + t.p[1], e.z + t.p[2]);
+                world.addBody(n);
+                const i = new THREE.Mesh(new THREE.BoxGeometry(...t.s), new THREE.MeshStandardMaterial({ color: 9127187, transparent: !0, opacity: .8 }));
+                i.position.copy(n.position);
+                i.castShadow = !0;
+                scene.add(i);
+            });
+        }
+        function startDiceRoll() {
+            document.getElementById("diceButton").disabled = !0;
+            document.getElementById("ui").style.opacity = "0";
+            switchCameraView("diceTray", () => {
+                isRollInProgress = !0;
+                timeSinceRest = 0;
+                dice.forEach((d, i) => {
+                    d.body.position.set(diceTrayPosition.x + 2 * i - 1, diceTrayPosition.y + 3, diceTrayPosition.z + 2 * (Math.random() - .5));
+                    d.body.velocity.set(4 * (Math.random() - .5), 2 + 4 * Math.random(), 4 * (Math.random() - .5));
+                    d.body.angularVelocity.set(20 * (Math.random() - .5), 20 * (Math.random() - .5), 20 * (Math.random() - .5));
+                });
+            });
+        }
         function finishDiceRoll(e){isRollInProgress=!1;const t=e[0]+e[1];document.getElementById("message").innerText=`Player ${activePlayerIndex+1} rolled ${e[0]} + ${e[1]} = ${t}!`,switchCameraView("board",()=>{turnActionQueue.push(()=>movePlayer(t)),processTurnQueue()})}
         function checkDiceSettled(e){if(!isRollInProgress)return;let t=!0;const o=.2;dice.forEach(e=>{e.body.velocity.lengthSquared()>o||e.body.angularVelocity.lengthSquared()>o?t=!1:!0}),t?timeSinceRest+=e:timeSinceRest=0,timeSinceRest>.5&&(()=>{let e=!1;const t=dice.map(t=>(t.body.position.y<0&&(e=!0),getDiceResult(t.body)));e?(document.getElementById("message").innerText="Whoops! Fell off. Roll again!",switchCameraView("board",()=>{document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1}),isRollInProgress=!1):finishDiceRoll(t)})()}
         function getDiceResult(e){const t=new CANNON.Vec3(0,1,0);let o=-1,a=-1;return[{v:new CANNON.Vec3(0,0,1),r:1},{v:new CANNON.Vec3(0,0,-1),r:6},{v:new CANNON.Vec3(0,1,0),r:2},{v:new CANNON.Vec3(0,-1,0),r:5},{v:new CANNON.Vec3(1,0,0),r:3},{v:new CANNON.Vec3(-1,0,0),r:4}].forEach(n=>{const i=e.quaternion.vmult(n.v),s=i.dot(t);s>o&&(o=s,a=n.r)}),a}
-        function nextTurn(){activePlayerIndex=(activePlayerIndex+1)%players.length,document.getElementById("message").innerText=`Player ${activePlayerIndex+1}'s Turn!`,document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1,updateHandUI(),processTurnQueue()}
+        function nextTurn() {
+            activePlayerIndex = (activePlayerIndex + 1) % players.length;
+            document.getElementById("message").innerText = `Player ${activePlayerIndex + 1}'s Turn!`;
+            focusOnPlayer(players[activePlayerIndex], () => {
+                document.getElementById("ui").style.opacity = "1";
+                document.getElementById("diceButton").disabled = !1;
+                updateHandUI();
+                processTurnQueue();
+            });
+        }
         function checkForFaceOff(e,t){const o=e.positionIndex,a=players.find(t=>t.id!==e.id&&t.positionIndex===o);a?startFaceOff(e,a):t()}
         function startFaceOff(e,t){const o=document.getElementById("minigameFaceoff");document.getElementById("faceoffPlayers").innerText=`Player ${e.id+1} vs Player ${t.id+1}`,o.style.display="flex",document.getElementById("startFaceoffBtn").onclick=()=>{o.style.display="none",resolveFaceOff(e,t)}}
         function resolveFaceOff(e,t){const o=Math.random()<.5?e:t,a=o===e?t:e;document.getElementById("message").innerText=`Player ${o.id+1} wins the face-off!`,movePlayerBack(a,3,()=>{processTurnQueue()})}
@@ -448,6 +531,23 @@
         function movePlayer(e){let t=0;const o=players[activePlayerIndex];!function a(){t>=e?turnActionQueue.push(()=>checkForFaceOff(o,()=>{turnActionQueue.push(()=>handleSpaceAction(o,()=>{turnActionQueue.push(nextTurn),processTurnQueue()})),processTurnQueue()})):(()=>{const e=boardSpaces[o.positionIndex];if(0===e.next.length)return document.getElementById("message").innerText=`Player ${o.id+1} finished!`,turnActionQueue.push(nextTurn),void processTurnQueue();o.previousPositionIndex=o.positionIndex,o.positionIndex=e.next[0],animateMove(o,a)})(),t++}()}
         function animateMove(e,t){const o=boardSpaces[e.positionIndex].position,a=e.id,n=.3*(a%2==0?-1:1),i=.3*(a<2?-1:1),s=o.y,r=new THREE.Vector3(o.x+n,s,o.z+i);if(0===e.previousPositionIndex){const a=e.mesh.position.clone(),n=a.clone().lerp(r,.5);n.y+=3;const i=new TWEEN.Tween(e.mesh.position).to(n,300).easing(TWEEN.Easing.Quadratic.Out),s=new TWEEN.Tween(e.mesh.position).to(r,300).easing(TWEEN.Easing.Quadratic.In);i.chain(s),s.onComplete(t),i.start()}else new TWEEN.Tween(e.mesh.position).to(r,400).easing(TWEEN.Easing.Quadratic.Out).onComplete(t).start()}
         function switchCameraView(e,t){const o=gameViews[e];new TWEEN.Tween(camera.position).to(o.cameraPos,1e3).easing(TWEEN.Easing.Quadratic.InOut).start(),new TWEEN.Tween(controls.target).to(o.controlsTarget,1e3).easing(TWEEN.Easing.Quadratic.InOut).onComplete(t).start()}
+
+        function focusOnPlayer(player, onComplete) {
+            const target = player.mesh.position;
+            const camPos = target.clone().add(new THREE.Vector3(0, 5, 8));
+            new TWEEN.Tween(camera.position).to(camPos, 1000).easing(TWEEN.Easing.Quadratic.InOut).start();
+            new TWEEN.Tween(controls.target).to(target, 1000).easing(TWEEN.Easing.Quadratic.InOut).onComplete(onComplete).start();
+        }
+
+        function addClouds() {
+            const cloudGeo = new THREE.SphereGeometry(5, 8, 8);
+            const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+            for (let i = 0; i < 3; i++) {
+                const cloud = new THREE.Mesh(cloudGeo, cloudMat);
+                cloud.position.set(Math.random() * 40 - 20, 30 + Math.random() * 10, Math.random() * 40 - 20);
+                scene.add(cloud);
+            }
+        }
         const clock = new THREE.Clock();
         function animate(){requestAnimationFrame(animate);const e=clock.getDelta();world.step(1/60,e,3),dice.forEach(e=>{e.mesh.position.copy(e.body.position),e.mesh.quaternion.copy(e.body.quaternion)}),checkDiceSettled(e),controls.update(),TWEEN.update(),renderer.render(scene,camera)}
         function onWindowResize(){camera.aspect=window.innerWidth/window.innerHeight,camera.updateProjectionMatrix(),renderer.setSize(window.innerWidth,window.innerHeight)}
