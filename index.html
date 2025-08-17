@@ -199,6 +199,11 @@
         const boardSpaces = [];
         const players = [];
         const PLAYER_Y_OFFSET = 0.6;
+        const PLAYER_SCALE = 1.5;
+        const PLAYER_START_OFFSET = 0.6 * (PLAYER_SCALE / 0.5);
+        const PLAYER_MOVE_OFFSET = PLAYER_START_OFFSET / 2;
+        const PLAYER_PULSE_SCALE = 1.3;
+        let playersLoaded = 0;
         let activePlayerIndex = 0;
         const gameViews = {
             board: { cameraPos: new THREE.Vector3(5, 8, 5), controlsTarget: new THREE.Vector3(0, 0, 0) },
@@ -282,8 +287,8 @@
             diceButton.innerText = 'Roll Dice';
             document.getElementById('ui').appendChild(diceButton);
             diceButton.addEventListener('click', startDiceRoll);
-
-            setTimeout(()=>{startDiceRoll();},1000);
+            diceButton.disabled = true;
+            document.getElementById('ui').style.opacity = "0";
 
             minimapRenderer = new THREE.WebGLRenderer({ antialias: true });
             minimapRenderer.setSize(200, 200);
@@ -366,11 +371,11 @@
             playerModels.forEach((model, i) => {
                 loader.load(model, (gltf) => {
                     const mesh = gltf.scene;
-                    mesh.scale.set(0.5, 0.5, 0.5);
+                    mesh.scale.set(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
                     mesh.traverse(node => { if (node.isMesh) node.castShadow = true; });
 
-                    const offsetX = (i % 2 === 0 ? -0.6 : 0.6);
-                    const offsetZ = (i < 2 ? -0.6 : 0.6);
+                    const offsetX = (i % 2 === 0 ? -PLAYER_START_OFFSET : PLAYER_START_OFFSET);
+                    const offsetZ = (i < 2 ? -PLAYER_START_OFFSET : PLAYER_START_OFFSET);
                     mesh.position.set(startPosition.x + offsetX, startPosition.y + PLAYER_Y_OFFSET, startPosition.z + offsetZ);
                     scene.add(mesh);
                     players.push({ mesh: mesh, positionIndex: 0, previousPositionIndex: 0, id: i });
@@ -381,6 +386,8 @@
                         camera.position.copy(gameViews.board.cameraPos);
                         controls.target.copy(gameViews.board.controlsTarget);
                     }
+                    playersLoaded++;
+                    if(playersLoaded === playerModels.length) startIntro();
                 }, undefined, (error) => {
                     console.error(`An error happened loading model: ${model}`, error);
                 });
@@ -548,14 +555,63 @@
         
         function getDiceResult(e){const t=new CANNON.Vec3(0,1,0);let o=-1,a=-1;return[{v:new CANNON.Vec3(0,0,1),r:1},{v:new CANNON.Vec3(0,0,-1),r:6},{v:new CANNON.Vec3(0,1,0),r:2},{v:new CANNON.Vec3(0,-1,0),r:5},{v:new CANNON.Vec3(1,0,0),r:3},{v:new CANNON.Vec3(-1,0,0),r:4}].forEach(r=>{const d=e.quaternion.vmult(r.v),i=d.dot(t);i>o&&(o=i,a=r.r)}),a}
         
+        function startIntro(){
+            isCameraTransition = true;
+            let idx = 0;
+            function showNext(){
+                if(idx >= players.length){
+                    isCameraTransition = false;
+                    startTurnForActivePlayer();
+                    return;
+                }
+                const p = players[idx];
+                const camPos = p.mesh.position.clone().add(new THREE.Vector3(2,4,2));
+                new TWEEN.Tween(camera.position).to(camPos,1000).easing(TWEEN.Easing.Quadratic.InOut).onComplete(()=>{
+                    idx++;
+                    showNext();
+                }).start();
+                new TWEEN.Tween(controls.target).to(p.mesh.position,1000).easing(TWEEN.Easing.Quadratic.InOut).start();
+            }
+            showNext();
+        }
+
+        function highlightActivePlayer(player, done){
+            isCameraTransition = true;
+            const originalScale = player.mesh.scale.clone();
+            const targetScale = originalScale.clone().multiplyScalar(PLAYER_PULSE_SCALE);
+            const camPos = player.mesh.position.clone().add(new THREE.Vector3(2,4,2));
+            new TWEEN.Tween(camera.position).to(camPos,1000).easing(TWEEN.Easing.Quadratic.InOut).start();
+            new TWEEN.Tween(controls.target).to(player.mesh.position,1000).easing(TWEEN.Easing.Quadratic.InOut).onComplete(()=>{
+                const pulseUp = new TWEEN.Tween(player.mesh.scale).to({x:targetScale.x,y:targetScale.y,z:targetScale.z},400).easing(TWEEN.Easing.Quadratic.Out);
+                const pulseDown = new TWEEN.Tween(player.mesh.scale).to({x:originalScale.x,y:originalScale.y,z:originalScale.z},400).easing(TWEEN.Easing.Quadratic.In);
+                pulseUp.chain(pulseDown);
+                pulseDown.onComplete(()=>{
+                    updateBoardView();
+                    new TWEEN.Tween(camera.position).to(gameViews.board.cameraPos,800).easing(TWEEN.Easing.Quadratic.InOut).onComplete(()=>{
+                        isCameraTransition = false;
+                        if(done) done();
+                    }).start();
+                    new TWEEN.Tween(controls.target).to(gameViews.board.controlsTarget,800).easing(TWEEN.Easing.Quadratic.InOut).start();
+                });
+                pulseUp.start();
+            }).start();
+        }
+
+        function startTurnForActivePlayer(){
+            const player = players[activePlayerIndex];
+            document.getElementById("message").innerText = `Player ${activePlayerIndex+1}'s Turn!`;
+            highlightActivePlayer(player, () => {
+                document.getElementById("ui").style.opacity = "1";
+                document.getElementById("diceButton").disabled = false;
+                updateHandUI();
+                processTurnQueue();
+                setTimeout(()=>{ if(!isRollInProgress) startDiceRoll(); },1000);
+            });
+        }
+
         function nextTurn(){
             activePlayerIndex = (activePlayerIndex + 1) % players.length;
-            document.getElementById("message").innerText = `Player ${activePlayerIndex+1}'s Turn!`;
-            document.getElementById("ui").style.opacity = "1";
-            document.getElementById("diceButton").disabled = false;
-            updateHandUI();
-            processTurnQueue();
-            setTimeout(()=>{ if(!isRollInProgress) startDiceRoll(); },1000);
+            startTurnForActivePlayer();
         }
         
         function checkForFaceOff(e,t){const o=e.positionIndex,a=players.find(t=>t.id!==e.id&&t.positionIndex===o);a?startFaceOff(e,a):t()}
@@ -573,8 +629,8 @@
         function animateMove(player, callback){
             const targetPos = boardSpaces[player.positionIndex].position;
             const pid = player.id;
-            const xOffset = 0.3 * (pid % 2 === 0 ? -1 : 1);
-            const zOffset = 0.3 * (pid < 2 ? -1 : 1);
+            const xOffset = PLAYER_MOVE_OFFSET * (pid % 2 === 0 ? -1 : 1);
+            const zOffset = PLAYER_MOVE_OFFSET * (pid < 2 ? -1 : 1);
             const y = targetPos.y + PLAYER_Y_OFFSET;
             const dest = new THREE.Vector3(targetPos.x + xOffset, y, targetPos.z + zOffset);
 
@@ -589,8 +645,12 @@
                 if (callback) callback();
             };
 
+            const startPos = player.mesh.position.clone();
+            const targetRotY = Math.atan2(dest.x - startPos.x, dest.z - startPos.z);
+            new TWEEN.Tween(player.mesh.rotation).to({ y: targetRotY }, 200).easing(TWEEN.Easing.Quadratic.Out).start();
+            new TWEEN.Tween(player.mesh.rotation).to({ z: 0.3 }, 100).yoyo(true).repeat(4).start();
+
             if (player.previousPositionIndex === 0) {
-                const startPos = player.mesh.position.clone();
                 const peak = startPos.clone().lerp(dest, 0.5);
                 peak.y += 3;
                 const upTween = new TWEEN.Tween(player.mesh.position).to(peak, 300).easing(TWEEN.Easing.Quadratic.Out);
