@@ -431,7 +431,9 @@
             raycaster.setFromCamera(pointer, camera);
             const intersects = raycaster.intersectObjects(scene.children, true);
 
-            const intersectedChar = intersects.find(intersect => intersect.object.userData.characterIndex !== undefined);
+            const intersectedChar = intersects.find(
+                intersect => intersect.object.userData.characterIndex !== undefined
+            );
 
             if (intersectedChar) {
                 const index = intersectedChar.object.userData.characterIndex;
