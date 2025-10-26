@@ -176,7 +176,6 @@
         </div>
     </div>
 
-    <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -205,11 +204,8 @@
         const PLAYER_PULSE_SCALE = 1.3;
         let playersLoaded = 0;
         let activePlayerIndex = 0;
-        const diceTrayPos = new THREE.Vector3(0, 10, -15);
+        const diceTrayPos = new THREE.Vector3(0, 10, -15); // This seems unused if dice tray is at (0,10,0)
         const gameViews = {
-            board: { cameraPos: new THREE.Vector3(15, 20, 12), controlsTarget: new THREE.Vector3(10, 0, -3) },
-            diceTray: { cameraPos: diceTrayPos.clone().add(new THREE.Vector3(0, 5, 10)), controlsTarget: diceTrayPos }
-
             board: { cameraPos: new THREE.Vector3(5, 8, 5), controlsTarget: new THREE.Vector3(0, 0, 0) },
             diceTray: { cameraPos: new THREE.Vector3(0, 15, 15), controlsTarget: new THREE.Vector3(0, 10, 0) }
         };
@@ -222,10 +218,6 @@
         let discardPile = [];
         let playerHands = [[], [], [], []];
         let drawPile3D, discardPile3D;
-
-        function initCardGame() {}
-        function updateHandUI() {}
-        function handleSpaceAction(player, done) { done(); }
 
         // === AUDIO STATE ===
         let synth;
@@ -276,17 +268,15 @@
             scene.add(ground);
 
             createBoard();
-            createPlayers(selectedIndex);
+            createPlayers(selectedIndex); // Using the more complex version
             playerHands = [[], [], [], []];
-            initPhysics();
-            initCardGame();
+            initPhysics(); // Using the non-minified version
+            initCardGame(); // Using the full implementation
 
-            createClouds();
-
+            // createClouds(); // This function was duplicated, using the one in createEnvironment
             createEnvironment();
             
             synth = new Tone.Synth().toDestination();
-
 
             window.addEventListener('resize', onWindowResize, false);
             const diceButton = document.createElement('button');
@@ -298,44 +288,20 @@
             diceButton.disabled = true;
             document.getElementById('ui').style.opacity = "0";
 
+            // Minimap setup was in updateHandUI, moving to init
+            minimapRenderer = new THREE.WebGLRenderer({ antialias: true });
+            minimapRenderer.setSize(200, 200);
+            minimapRenderer.domElement.style.position = 'absolute';
+            minimapRenderer.domElement.style.right = '1rem';
+            minimapRenderer.domElement.style.bottom = '1rem';
+            minimapRenderer.domElement.style.border = '2px solid white';
+            minimapRenderer.domElement.style.borderRadius = '0.5rem';
+            container.appendChild(minimapRenderer.domElement);
+            minimapCamera = new THREE.OrthographicCamera(-20,20,20,-20,0.1,100);
+            minimapCamera.position.set(0,50,0);
+            minimapCamera.lookAt(0,0,0);
 
             animate();
-        }
-
-        function createPlayers() {
-            const loader = new THREE.GLTFLoader();
-            // Player model files live in the local "players" directory
-            const playerModels = [
-                'players/jonah.glb',
-                'players/kyle.glb',
-                'players/rochelle.glb',
-                'players/vickie.glb'
-            ];
-            const startPosition = boardSpaces[0].position;
-
-            playerModels.forEach((modelName, i) => {
-                loader.load(modelName, (gltf) => {
-                    const playerMesh = gltf.scene;
-                    playerMesh.scale.set(1.5, 1.5, 1.5); // Make pieces much bigger
-                    playerMesh.traverse(function (node) {
-                        if (node.isMesh) { node.castShadow = true; }
-                    });
-
-                    const offsetX = (i % 2 === 0 ? -1 : 1) * 1.5;
-                    const offsetZ = (i < 2 ? -1 : 1) * 1.5;
-                    playerMesh.position.set(startPosition.x + offsetX, startPosition.y, startPosition.z + offsetZ);
-                    
-                    scene.add(playerMesh);
-                    players.push({ mesh: playerMesh, positionIndex: 0, previousPositionIndex: 0, id: i });
-                    if (i === activePlayerIndex) {
-                        focusOnPlayer(players[activePlayerIndex]);
-                    }
-                },
-                undefined, // onProgress callback (optional)
-                (error) => {
-                    console.error(`An error happened loading model: ${modelName}`, error);
-                });
-            });
         }
         
         // --- (All other functions remain largely the same) ---
@@ -428,21 +394,6 @@
                 cardEl.onclick = () => playCard(activePlayerIndex, index);
                 handContainer.appendChild(cardEl);
             });
-
-            minimapRenderer = new THREE.WebGLRenderer({ antialias: true });
-            minimapRenderer.setSize(200, 200);
-            minimapRenderer.domElement.style.position = 'absolute';
-            minimapRenderer.domElement.style.right = '1rem';
-            minimapRenderer.domElement.style.bottom = '1rem';
-            minimapRenderer.domElement.style.border = '2px solid white';
-            minimapRenderer.domElement.style.borderRadius = '0.5rem';
-            container.appendChild(minimapRenderer.domElement);
-            minimapCamera = new THREE.OrthographicCamera(-20,20,20,-20,0.1,100);
-            minimapCamera.position.set(0,50,0);
-            minimapCamera.lookAt(0,0,0);
-
-            animate();
-
         }
 
         function playCard(playerIndex, cardIndex) {
@@ -472,7 +423,12 @@
             animateMove(player, onComplete);
         }
 
-        function createClouds() {
+        function handleSpaceAction(player, done) {
+             // This was a stub, keeping it as a stub for now
+            done(); 
+        }
+
+        function createClouds() { // This was the duplicated function, keeping one
             const cloudGeo = new THREE.SphereGeometry(1.5, 16, 16);
             const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
             for (let i = 0; i < 3; i++) {
@@ -541,7 +497,7 @@
             });
         }
 
-        function createPlayers(selectedIndex){
+        function createPlayers(selectedIndex){ // Kept the more complex version
             const loader = new THREE.GLTFLoader();
             const playerModels = [
                 'players/jonah.glb',
@@ -672,7 +628,7 @@
             ];
         }
 
-        function initPhysics(){
+        function initPhysics(){ // Kept the non-minified version
             world = new CANNON.World();
             world.gravity.set(0, -9.82 * 2, 0);
             world.broadphase = new CANNON.NaiveBroadphase();
@@ -688,7 +644,7 @@
                 dice.push({ body: diceBody, mesh: threeMesh });
             }
             
-            const trayPosition = new THREE.Vector3(0, 10, 0);
+            const trayPosition = new THREE.Vector3(0, 10, 0); // Matches the 'diceTray' view target
             const traySize = 10, wallHeight = 2, wallThickness = 0.5;
             const floorBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
             floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
@@ -714,7 +670,7 @@
             });
         }
 
-        function startDiceRoll(){
+        function startDiceRoll(){ // Kept the non-minified version
             if (Tone.context.state !== 'running') {
                 Tone.context.resume();
             }
@@ -724,26 +680,61 @@
             switchCameraView("diceTray",()=>{
                 isRollInProgress=true;
                 timeSinceRest=0;
+                const trayPos = gameViews.diceTray.controlsTarget; // Use view target
                 dice.forEach((e,t)=>{
-                    e.body.position.set(2*t-1, 15, 2*(Math.random()-.5));
+                    e.body.position.set(trayPos.x + 2*t-1, trayPos.y + 5, trayPos.z + 2*(Math.random()-.5));
                     e.body.velocity.set(4*(Math.random()-.5),2+4*Math.random(),4*(Math.random()-.5));
                     e.body.angularVelocity.set(20*(Math.random()-.5),20*(Math.random()-.5),20*(Math.random()-.5));
                 });
             });
         }
-
-        function initPhysics(){world=new CANNON.World,world.gravity.set(0,-19.64,0),world.broadphase=new CANNON.NaiveBroadphase,world.solver.iterations=10;for(let e=0;e<2;e++){const t=new CANNON.Body({mass:1,shape:new CANNON.Box(new CANNON.Vec3(.5,.5,.5))}),o=new THREE.TextureLoader,a=[new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=1")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=6")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=2")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=5")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=3")}),new THREE.MeshStandardMaterial({map:o.load("https://placehold.co/128x128/FFF/000?text=4")})],n=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),a);n.castShadow=!0,world.addBody(t),scene.add(n),dice.push({body:t,mesh:n})}const e=diceTrayPos.clone(),t=10,o=2,a=.5,n=new CANNON.Body({mass:0,shape:new CANNON.Plane});n.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0),-Math.PI/2),n.position.copy(e),world.addBody(n);const i=new THREE.Mesh(new THREE.BoxGeometry(t,a,t),new THREE.MeshStandardMaterial({color:9127187,transparent:!0,opacity:.8}));i.position.set(e.x,e.y-a/2,e.z),i.receiveShadow=!0,scene.add(i),[{p:[0,o/2,-t/2],s:[t,o,a]},{p:[0,o/2,t/2],s:[t,o,a]},{p:[-t/2,o/2,0],s:[a,o,t]},{p:[t/2,o/2,0],s:[a,o,t]}].forEach(t=>{const n=new CANNON.Body({mass:0,shape:new CANNON.Box(new CANNON.Vec3(t.s[0]/2,t.s[1]/2,t.s[2]/2))});n.position.set(e.x+t.p[0],e.y+t.p[1],e.z+t.p[2]),world.addBody(n);const i=new THREE.Mesh(new THREE.BoxGeometry(...t.s),new THREE.MeshStandardMaterial({color:9127187,transparent:!0,opacity:.8}));i.position.copy(n.position),i.castShadow=!0,scene.add(i)})}
-        function startDiceRoll(){document.getElementById("diceButton").disabled=!0,document.getElementById("ui").style.opacity="0",switchCameraView("diceTray",()=>{isRollInProgress=!0,timeSinceRest=0,dice.forEach((e,t)=>{e.body.position.set(diceTrayPos.x+2*t-1,diceTrayPos.y+5,diceTrayPos.z+2*(Math.random()-.5)),e.body.velocity.set(4*(Math.random()-.5),2+4*Math.random(),4*(Math.random()-.5)),e.body.angularVelocity.set(20*(Math.random()-.5),20*(Math.random()-.5),20*(Math.random()-.5))})})}
-        function finishDiceRoll(e){isRollInProgress=!1;const t=e[0]+e[1];document.getElementById("message").innerText=`Player ${activePlayerIndex+1} rolled ${e[0]} + ${e[1]} = ${t}!`,switchCameraView("board",()=>{focusOnPlayer(players[activePlayerIndex]),turnActionQueue.push(()=>movePlayer(t)),processTurnQueue()})}
-        function checkDiceSettled(e){if(!isRollInProgress)return;let t=!0;const o=.2;dice.forEach(e=>{e.body.velocity.lengthSquared()>o||e.body.angularVelocity.lengthSquared()>o?t=!1:!0}),t?timeSinceRest+=e:timeSinceRest=0,timeSinceRest>.5&&(()=>{let e=!1;const t=dice.map(t=>(t.body.position.y<0&&(e=!0),getDiceResult(t.body)));e?(document.getElementById("message").innerText="Whoops! Fell off. Roll again!",switchCameraView("board",()=>{document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1}),isRollInProgress=!1):finishDiceRoll(t)})()}
-        function getDiceResult(e){const t=new CANNON.Vec3(0,1,0);let o=-1,a=-1;return[{v:new CANNON.Vec3(0,0,1),r:1},{v:new CANNON.Vec3(0,0,-1),r:6},{v:new CANNON.Vec3(0,1,0),r:2},{v:new CANNON.Vec3(0,-1,0),r:5},{v:new CANNON.Vec3(1,0,0),r:3},{v:new CANNON.Vec3(-1,0,0),r:4}].forEach(n=>{const i=e.quaternion.vmult(n.v),s=i.dot(t);s>o&&(o=s,a=n.r)}),a}
-        function nextTurn(){switchCameraView('board',()=>{activePlayerIndex=(activePlayerIndex+1)%players.length,document.getElementById("message").innerText=`Player ${activePlayerIndex+1}'s Turn!`,document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1,updateHandUI(),focusOnPlayer(players[activePlayerIndex]),processTurnQueue()})}
-
-        function finishDiceRoll(e){isRollInProgress=!1;const t=e[0]+e[1];document.getElementById("message").innerText=`Player ${activePlayerIndex+1} rolled ${e[0]} + ${e[1]} = ${t}!`,switchCameraView("board",()=>{turnActionQueue.push(()=>movePlayer(t)),processTurnQueue()})}
         
-        function checkDiceSettled(e){if(!isRollInProgress)return;let t=!0;const o=.2;dice.forEach(e=>{e.body.velocity.lengthSquared()>o||e.body.angularVelocity.lengthSquared()>o?t=!1:!0}),t?timeSinceRest+=e:timeSinceRest=0,timeSinceRest>.5&&(()=>{let e=!1;const t=dice.map(t=>(t.body.position.y<8&&(e=!0),getDiceResult(t.body)));e?(document.getElementById("message").innerText="Whoops! Fell off. Roll again!",switchCameraView("board",()=>{document.getElementById("ui").style.opacity="1",document.getElementById("diceButton").disabled=!1}),isRollInProgress=!1):finishDiceRoll(t)})()}
+        function finishDiceRoll(e){ // Kept the non-minified version
+            isRollInProgress=!1;
+            const t=e[0]+e[1];
+            document.getElementById("message").innerText=`Player ${activePlayerIndex+1} rolled ${e[0]} + ${e[1]} = ${t}!`;
+            switchCameraView("board",()=>{
+                turnActionQueue.push(()=>movePlayer(t)),processTurnQueue()
+            });
+        }
         
-        function getDiceResult(e){const t=new CANNON.Vec3(0,1,0);let o=-1,a=-1;return[{v:new CANNON.Vec3(0,0,1),r:1},{v:new CANNON.Vec3(0,0,-1),r:6},{v:new CANNON.Vec3(0,1,0),r:2},{v:new CANNON.Vec3(0,-1,0),r:5},{v:new CANNON.Vec3(1,0,0),r:3},{v:new CANNON.Vec3(-1,0,0),r:4}].forEach(r=>{const d=e.quaternion.vmult(r.v),i=d.dot(t);i>o&&(o=i,a=r.r)}),a}
+        function checkDiceSettled(e){ // Kept the non-minified version
+            if(!isRollInProgress)return;
+            let t=!0;
+            const o=.2;
+            dice.forEach(e=>{
+                e.body.velocity.lengthSquared()>o||e.body.angularVelocity.lengthSquared()>o?t=!1:!0
+            });
+            t?timeSinceRest+=e:timeSinceRest=0;
+            
+            if(timeSinceRest > 0.5) {
+                let e=!1;
+                const trayFloorY = gameViews.diceTray.controlsTarget.y;
+                const t = dice.map(t => {
+                    if (t.body.position.y < trayFloorY - 1) { // Check if it fell through
+                         e=!0
+                    }
+                    return getDiceResult(t.body)
+                });
+                
+                if(e) {
+                    (document.getElementById("message").innerText="Whoops! Fell off. Roll again!",
+                    switchCameraView("board",()=>{
+                        document.getElementById("ui").style.opacity="1",
+                        document.getElementById("diceButton").disabled=!1
+                    }),
+                    isRollInProgress=!1)
+                } else {
+                    finishDiceRoll(t)
+                }
+            }
+        }
+        
+        function getDiceResult(e){ // Kept the non-minified version
+            const t=new CANNON.Vec3(0,1,0);
+            let o=-1,a=-1;
+            return [{v:new CANNON.Vec3(0,0,1),r:1},{v:new CANNON.Vec3(0,0,-1),r:6},{v:new CANNON.Vec3(0,1,0),r:2},{v:new CANNON.Vec3(0,-1,0),r:5},{v:new CANNON.Vec3(1,0,0),r:3},{v:new CANNON.Vec3(-1,0,0),r:4}].forEach(r=>{const d=e.quaternion.vmult(r.v),i=d.dot(t);i>o&&(o=i,a=r.r)}),a
+        }
         
         function startIntro(){
             isCameraTransition = true;
@@ -799,7 +790,7 @@
             });
         }
 
-        function nextTurn(){
+        function nextTurn(){ // Kept the non-minified version
             activePlayerIndex = (activePlayerIndex + 1) % players.length;
             startTurnForActivePlayer();
         }
@@ -816,11 +807,7 @@
         
         function movePlayer(e){let t=0;const o=players[activePlayerIndex];!function a(){t>=e?turnActionQueue.push(()=>checkForFaceOff(o,()=>{turnActionQueue.push(()=>handleSpaceAction(o,()=>{turnActionQueue.push(nextTurn),processTurnQueue()})),processTurnQueue()})):(()=>{const e=boardSpaces[o.positionIndex];if(0===e.next.length)return document.getElementById("message").innerText=`Player ${o.id+1} finished!`,turnActionQueue.push(nextTurn),void processTurnQueue();o.previousPositionIndex=o.positionIndex,o.positionIndex=e.next[0],animateMove(o,a)})(),t++}()}
 
-        function animateMove(e,t){const o=boardSpaces[e.positionIndex].position,a=e.id,n=.3*(a%2==0?-1:1),i=.3*(a<2?-1:1),s=o.y,r=new THREE.Vector3(o.x+n,s,o.z+i);if(0===e.previousPositionIndex){const a=e.mesh.position.clone(),n=a.clone().lerp(r,.5);n.y+=3;const i=new TWEEN.Tween(e.mesh.position).to(n,300).easing(TWEEN.Easing.Quadratic.Out),s=new TWEEN.Tween(e.mesh.position).to(r,300).easing(TWEEN.Easing.Quadratic.In);i.chain(s),s.onComplete(t),i.start()}else new TWEEN.Tween(e.mesh.position).to(r,400).easing(TWEEN.Easing.Quadratic.Out).onComplete(t).start()}
-        function switchCameraView(e,t){const o=gameViews[e];new TWEEN.Tween(camera.position).to(o.cameraPos,1e3).easing(TWEEN.Easing.Quadratic.InOut).start(),new TWEEN.Tween(controls.target).to(o.controlsTarget,1e3).easing(TWEEN.Easing.Quadratic.InOut).onComplete(t).start()}
-        function focusOnPlayer(player, cb){const targetPos=player.mesh.position.clone(),camPos=targetPos.clone().add(new THREE.Vector3(0,5,5));new TWEEN.Tween(camera.position).to(camPos,1e3).easing(TWEEN.Easing.Quadratic.InOut).start(),new TWEEN.Tween(controls.target).to(targetPos,1e3).easing(TWEEN.Easing.Quadratic.InOut).onComplete(()=>{cb&&cb()}).start()}
-    
-        function animateMove(player, callback){
+        function animateMove(player, callback){ // Kept the non-minified version
             const targetPos = boardSpaces[player.positionIndex].position;
             const pid = player.id;
             const xOffset = PLAYER_MOVE_OFFSET * (pid % 2 === 0 ? -1 : 1);
@@ -865,7 +852,7 @@
             }
         }
 
-        function switchCameraView(e,t){
+        function switchCameraView(e,t){ // Kept the non-minified version
             currentView=e;
             if(e==="board")updateBoardView();
             const o=gameViews[e];
