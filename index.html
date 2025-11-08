@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project Partyverse - 3D Prototype</title>
+    <title>Project Partyverse - V2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { margin: 0; font-family: 'Inter', sans-serif; overflow: hidden; }
@@ -15,6 +15,7 @@
             flex-direction: column; gap: 1rem; background-color: rgba(0, 0, 0, 0.85);
             padding: 2rem; border-radius: 1rem; text-align: center;
             max-width: 90vw;
+            z-index: 10;
         }
         #ui {
             position: absolute;
@@ -24,6 +25,7 @@
             padding: 1.5rem;
             display: flex;
             justify-content: center;
+            z-index: 5;
         }
         .btn {
             color: white; padding: 1rem 2rem; border-radius: 9999px;
@@ -53,6 +55,7 @@
             gap: 1rem;
             justify-content: center;
             pointer-events: none;
+            z-index: 5;
         }
         .card {
             background-color: #fff;
@@ -89,6 +92,7 @@
             display: flex;
             gap: 2rem;
             pointer-events: none;
+            z-index: 5;
         }
         .card-pile-outline {
             width: 100px;
@@ -125,6 +129,34 @@
             background-color: #1f2937;
             border: 2px solid #fff;
         }
+        /* New Player Stats UI */
+        #playerStats {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            z-index: 5;
+        }
+        .stat-line {
+            display: flex;
+            align-items: center;
+            font-weight: 600;
+            color: white;
+        }
+        .stat-line.player-0 { color: #f87171; } /* Red */
+        .stat-line.player-1 { color: #60a5fa; } /* Blue */
+        .stat-line.player-2 { color: #facc15; } /* Yellow */
+        .stat-line.player-3 { color: #4ade80; } /* Green */
+        .stat-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 0.5rem;
+        }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -132,6 +164,7 @@
 </head>
 <body>
     <div id="container">
+        <!-- Player Select Screen -->
         <div id="playerSelect" class="overlay-panel" style="display:flex;">
             <div class="text-white text-lg font-bold mb-4">Choose Your Character</div>
             <div class="flex gap-4">
@@ -153,10 +186,22 @@
                 </div>
             </div>
         </div>
+
+        <!-- Main Game UI -->
         <div id="ui">
             <div id="message">Player 1's Turn!</div>
         </div>
+
+        <!-- Player Coin/Star Stats -->
+        <div id="playerStats">
+            <div id="roundCounter" class="stat-line" style="color: white; font-size: 1.25rem; margin-bottom: 0.5rem;">Round 1 / 10</div>
+            <!-- Player stats will be populated by JS -->
+        </div>
+
+        <!-- Player Card Hand -->
         <div id="playerHand"></div>
+
+        <!-- Card Piles (Visual) -->
         <div id="cardPiles">
             <div class="card-pile-outline draw-pile">
                 <div class="pile-label">DRAW</div>
@@ -165,14 +210,24 @@
                 <div class="pile-label">DISCARD</div>
             </div>
         </div>
+
+        <!-- Face-off Panel -->
         <div id="minigameFaceoff" class="overlay-panel">
             <div id="faceoffMessage" class="text-white text-xl font-bold mb-2">FACE-OFF!</div>
             <div id="faceoffPlayers" class="text-white text-md mb-4"></div>
             <button id="startFaceoffBtn" class="btn faceoffBtn">Start Minigame!</button>
         </div>
+
+        <!-- Discard Choice Panel -->
         <div id="discardChoice" class="overlay-panel">
             <div id="discardMessage" class="text-white text-lg font-semibold mb-2">Choose a card to discard!</div>
             <div id="discardCardContainer" class="flex gap-4 flex-wrap justify-center"></div>
+        </div>
+
+        <!-- Minigame Transition Panel -->
+        <div id="minigameTransition" class="overlay-panel">
+            <div id="minigameMessage" class="text-white text-2xl font-bold">MINIGAME TIME!</div>
+            <div id="minigameResult" class="text-white text-lg mt-4">Everyone gets 10 coins!</div>
         </div>
     </div>
 
@@ -197,21 +252,31 @@
         // === GAME STATE ===
         const boardSpaces = [];
         const players = [];
-        const PLAYER_Y_OFFSET = 0.6;
+        const PLAYER_Y_OFFSET = 0.1; // Lowered offset, as model bottom is now at y=0
         const PLAYER_SCALE = 1.5;
         const PLAYER_START_OFFSET = 0.6 * (PLAYER_SCALE / 0.5);
-        const PLAYER_MOVE_OFFSET = PLAYER_START_OFFSET / 2;
+        // const PLAYER_MOVE_OFFSET = PLAYER_START_OFFSET / 2; // No longer needed
         const PLAYER_PULSE_SCALE = 1.3;
         let playersLoaded = 0;
         let activePlayerIndex = 0;
-        const diceTrayPos = new THREE.Vector3(0, 10, -15); // This seems unused if dice tray is at (0,10,0)
+        const diceTrayPos = new THREE.Vector3(0, 10, -15);
         const gameViews = {
             board: { cameraPos: new THREE.Vector3(5, 8, 5), controlsTarget: new THREE.Vector3(0, 0, 0) },
-            diceTray: { cameraPos: new THREE.Vector3(0, 15, 15), controlsTarget: new THREE.Vector3(0, 10, 0) }
+            // NEW: More top-down view for dice roll
+            diceTray: { cameraPos: new THREE.Vector3(0, 20, 5), controlsTarget: new THREE.Vector3(0, 10, 0) }
         };
         let currentView = 'board';
         let isCameraTransition = false;
         let turnActionQueue = [];
+
+        // === NEW MARIO PARTY GAME STATE ===
+        let playerCoins = [0, 0, 0, 0];
+        let playerStars = [0, 0, 0, 0];
+        let currentRound = 1;
+        let maxRounds = 10;
+        let starPrice = 20;
+        let starSpaceIndex = -1; // Index of the board space with the star
+        let starObject = null; // A THREE.Mesh for the star
 
         // === CARD GAME STATE ===
         let deck = [];
@@ -223,6 +288,7 @@
         let synth;
         const musicalScale = ['C4', 'D4', 'E4', 'G4', 'A4', 'C5'];
         let noteCounter = 0;
+        const playerColors = ['#f87171', '#60a5fa', '#facc15', '#4ade80']; // For UI
 
         function init(selectedIndex) {
             scene = new THREE.Scene();
@@ -254,7 +320,7 @@
             scene.add(directionalLight);
 
             const textureLoader = new THREE.TextureLoader();
-            const grassTexture = textureLoader.load('assets/grass_texture.png');
+            const grassTexture = textureLoader.load('kmberry1989/partyboard/partyboard-c0a2f86ec63f1854bc71cce7ba67c142ae0d0b30/assets/grass_texture.png');
             grassTexture.wrapS = THREE.RepeatWrapping;
             grassTexture.wrapT = THREE.RepeatWrapping;
             grassTexture.repeat.set(10, 10);
@@ -268,12 +334,13 @@
             scene.add(ground);
 
             createBoard();
-            createPlayers(selectedIndex); // Using the more complex version
+            createStar(); // Create the star object
+            moveStar(); // Place the star for the first time
+            createPlayers(selectedIndex);
             playerHands = [[], [], [], []];
-            initPhysics(); // Using the non-minified version
-            initCardGame(); // Using the full implementation
+            initPhysics();
+            initCardGame();
 
-            // createClouds(); // This function was duplicated, using the one in createEnvironment
             createEnvironment();
             
             synth = new Tone.Synth().toDestination();
@@ -288,7 +355,7 @@
             diceButton.disabled = true;
             document.getElementById('ui').style.opacity = "0";
 
-            // Minimap setup was in updateHandUI, moving to init
+            // Minimap setup
             minimapRenderer = new THREE.WebGLRenderer({ antialias: true });
             minimapRenderer.setSize(200, 200);
             minimapRenderer.domElement.style.position = 'absolute';
@@ -301,11 +368,11 @@
             minimapCamera.position.set(0,50,0);
             minimapCamera.lookAt(0,0,0);
 
+            updatePlayerStatsUI(); // Initial UI update
             animate();
         }
         
-        // --- (All other functions remain largely the same) ---
-
+        // --- (Card Game functions remain the same) ---
         function initCardGame() {
             const cardTypes = [
                 { title: "Extra Step", desc: "Move 1 extra space." },
@@ -341,7 +408,6 @@
             update3DCardPiles();
             updateHandUI();
         }
-
         function update3DCardPiles() {
             drawPile3D.children.forEach(c => drawPile3D.remove(c));
             discardPile3D.children.forEach(c => discardPile3D.remove(c));
@@ -360,8 +426,11 @@
                 discardPile3D.add(cardMesh);
             }
         }
-
         function drawCard(playerIndex) {
+            if (playerHands[playerIndex].length >= 5) { // Limit hand size
+                // Maybe show a "Hand Full!" message
+                return;
+            }
             if (deck.length === 0) {
                 deck = [...discardPile];
                 discardPile = [];
@@ -372,18 +441,16 @@
                 playerHands[playerIndex].push(card);
             }
             update3DCardPiles();
-            updateHandUI();
+            if(playerIndex === activePlayerIndex) updateHandUI();
         }
-
         function discardCard(playerIndex, cardIndex) {
             if (playerHands[playerIndex][cardIndex]) {
                 const [card] = playerHands[playerIndex].splice(cardIndex, 1);
                 discardPile.push(card);
                 update3DCardPiles();
-                updateHandUI();
+                if(playerIndex === activePlayerIndex) updateHandUI();
             }
         }
-        
         function updateHandUI() {
             const handContainer = document.getElementById('playerHand');
             handContainer.innerHTML = '';
@@ -395,7 +462,6 @@
                 handContainer.appendChild(cardEl);
             });
         }
-
         function playCard(playerIndex, cardIndex) {
             const card = playerHands[playerIndex][cardIndex];
             if (!card) return;
@@ -414,7 +480,6 @@
             }
             processTurnQueue();
         }
-
         function playExtraStep(player, onComplete) {
             const current = boardSpaces[player.positionIndex];
             if (current.next.length === 0) { onComplete(); return; }
@@ -423,9 +488,147 @@
             animateMove(player, onComplete);
         }
 
+        // --- NEW/MODIFIED FUNCTIONS ---
+
+        function updatePlayerStatsUI() {
+            const statsContainer = document.getElementById('playerStats');
+            document.getElementById('roundCounter').innerText = `Round ${currentRound} / ${maxRounds}`;
+            
+            // Clear old stats
+            statsContainer.querySelectorAll('.stat-line:not(#roundCounter)').forEach(el => el.remove());
+
+            // Add new stats
+            for(let i = 0; i < players.length; i++) {
+                const statLine = document.createElement('div');
+                statLine.className = `stat-line player-${i}`;
+                statLine.innerHTML = `
+                    <span style="font-weight: 800; min-width: 70px;">Player ${i+1}</span>
+                    <svg class="stat-icon" fill="${playerColors[i]}" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                    <span>${playerStars[i]}</span>
+                    <svg class="stat-icon" style="margin-left: 1rem;" fill="${playerColors[i]}" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM1 10a9 9 0 1118 0 9 9 0 01-18 0z"></path><path d="M10 4a1 1 0 011 1v1.134a4.002 4.002 0 012.83 2.83H15a1 1 0 110 2h-1.134a4.002 4.002 0 01-2.83 2.83V15a1 1 0 11-2 0v-1.134a4.002 4.002 0 01-2.83-2.83H5a1 1 0 110-2h1.134a4.002 4.002 0 012.83-2.83V5a1 1 0 011-1z"></path></svg>
+                    <span>${playerCoins[i]}</span>
+                `;
+                statsContainer.appendChild(statLine);
+            }
+        }
+
+        /**
+         * The main logic for what happens when a player lands on a space.
+         */
         function handleSpaceAction(player, done) {
-             // This was a stub, keeping it as a stub for now
-            done(); 
+             const space = boardSpaces[player.positionIndex];
+             let message = "";
+             let coinsChanged = 0;
+
+             switch(space.type) {
+                case 'blue':
+                    message = "+3 Coins!";
+                    coinsChanged = 3;
+                    break;
+                case 'red':
+                    message = "-3 Coins!";
+                    coinsChanged = -3;
+                    break;
+                case 'item':
+                    message = "Got an Item!";
+                    drawCard(player.id);
+                    break;
+                case 'event':
+                    message = "Event Space!";
+                    // Placeholder for a real event
+                    turnActionQueue.push(() => triggerRandomEvent(player, processTurnQueue));
+                    break;
+                case 'star':
+                    message = "Star Space!";
+                    turnActionQueue.push(() => buyStar(player, processTurnQueue));
+                    break;
+                default:
+                    // Nothing happens on a standard space
+                    break;
+             }
+
+             if (coinsChanged !== 0) {
+                playerCoins[player.id] = Math.max(0, playerCoins[player.id] + coinsChanged);
+                updatePlayerStatsUI();
+             }
+             
+             if (message) {
+                document.getElementById('message').innerText = message;
+             }
+
+             // Call 'done' to continue the turn queue
+             done(); 
+        }
+
+        function triggerRandomEvent(player, done) {
+            // This is a stub for a random event
+            document.getElementById('message').innerText = "Everyone gets 5 coins!";
+            for(let i = 0; i < playerCoins.length; i++) {
+                playerCoins[i] = Math.max(0, playerCoins[i] + 5);
+            }
+            updatePlayerStatsUI();
+            
+            // Wait 2 seconds then call done
+            setTimeout(done, 2000);
+        }
+
+        function buyStar(player, done) {
+            if (playerCoins[player.id] >= starPrice) {
+                playerCoins[player.id] -= starPrice;
+                playerStars[player.id]++;
+                document.getElementById('message').innerText = `Player ${player.id + 1} bought a Star!`;
+                updatePlayerStatsUI();
+                moveStar(); // The star moves after being bought
+            } else {
+                document.getElementById('message').innerText = `Not enough coins for a Star!`;
+            }
+            // Wait 2 seconds then call done
+            setTimeout(done, 2000);
+        }
+
+        function createStar() {
+            // Simple star shape
+            const starShape = new THREE.Shape();
+            starShape.moveTo(0, 1);
+            starShape.lineTo(0.22, 0.31);
+            starShape.lineTo(0.95, 0.31);
+            starShape.lineTo(0.36, -0.12);
+            starShape.lineTo(0.59, -0.81);
+            starShape.lineTo(0, -0.38);
+            starShape.lineTo(-0.59, -0.81);
+            starShape.lineTo(-0.36, -0.12);
+            starShape.lineTo(-0.95, 0.31);
+            starShape.lineTo(-0.22, 0.31);
+            starShape.lineTo(0, 1);
+
+            const extrudeSettings = { depth: 0.2, bevelEnabled: false };
+            const geometry = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
+            const material = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0xccaa00 });
+            starObject = new THREE.Mesh(geometry, material);
+            starObject.scale.set(0.7, 0.7, 0.7);
+            starObject.rotation.set(Math.PI / 2, 0, 0); // Lay flat
+            starObject.castShadow = true;
+            scene.add(starObject);
+        }
+
+        function moveStar() {
+            // Pick a new random space (that isn't the start space)
+            const newIndex = Math.floor(Math.random() * (boardSpaces.length - 1)) + 1;
+            starSpaceIndex = newIndex;
+
+            // Mark the new space and unmark the old one
+            boardSpaces.forEach((space, index) => {
+                if (index === starSpaceIndex) {
+                    space.type = 'star';
+                    // Update visual
+                    const pos = space.position;
+                    starObject.position.set(pos.x, pos.y + 0.5, pos.z);
+                } else if (space.type === 'star') {
+                    // Reset old star space to a default type (e.g., blue)
+                    space.type = 'blue';
+                    space.mesh.material.color.setHex(0x3b82f6); // Blue color
+                }
+            });
         }
 
         function createClouds() { // This was the duplicated function, keeping one
@@ -446,27 +649,59 @@
 
         function createBoard(){
             const spaceSize = 2, spaceGap = 0.5, totalSize = spaceSize + spaceGap, zOffset = -8, startPlatformOffset = -4;
+            // NEW: Updated path data with new space types
             const pathData = [
-                {pos:{x:0,z:0},next:[1]},{pos:{x:1,z:0},next:[2]},{pos:{x:2,z:0},next:[3]},{pos:{x:3,z:0},next:[4],type:'draw'},
-                {pos:{x:4,z:0},next:[5]},{pos:{x:5,z:0},next:[6]},{pos:{x:5,z:1},next:[7]},{pos:{x:5,z:2},next:[8],type:'discard'},
-                {pos:{x:4,z:2},next:[9]},{pos:{x:3,z:2},next:[10]},{pos:{x:2,z:2},next:[11]},{pos:{x:1,z:2},next:[12]},
-                {pos:{x:0,z:2},next:[13],type:'draw'},{pos:{x:-1,z:2},next:[14]},{pos:{x:-1,z:3},next:[15]},{pos:{x:-1,z:4},next:[16]},
-                {pos:{x:0,z:4},next:[17]},{pos:{x:1,z:4},next:[18],type:'discard'},{pos:{x:2,z:4},next:[19]},{pos:{x:3,z:4},next:[20]},
-                {pos:{x:4,z:4},next:[21]},{pos:{x:5,z:4},next:[22]},{pos:{x:6,z:4},next:[23],type:'draw'},{pos:{x:7,z:4},next:[24]},
-                {pos:{x:8,z:4},next:[25]},{pos:{x:8,z:3},next:[26]},{pos:{x:8,z:2},next:[27]},{pos:{x:8,z:1},next:[28]},
-                {pos:{x:8,z:0},next:[29],type:'discard'},{pos:{x:9,z:0},next:[30]},{pos:{x:10,z:0},next:[]}
+                {pos:{x:0,z:0},next:[1], type: 'start'}, // Start
+                {pos:{x:1,z:0},next:[2], type: 'blue'},
+                {pos:{x:2,z:0},next:[3], type: 'red'},
+                {pos:{x:3,z:0},next:[4], type: 'item'}, // Was 'draw'
+                {pos:{x:4,z:0},next:[5], type: 'blue'},
+                {pos:{x:5,z:0},next:[6], type: 'blue'},
+                {pos:{x:5,z:1},next:[7], type: 'blue'},
+                {pos:{x:5,z:2},next:[8], type: 'event'}, // Was 'discard'
+                {pos:{x:4,z:2},next:[9], type: 'blue'},
+                {pos:{x:3,z:2},next:[10], type: 'red'},
+                {pos:{x:2,z:2},next:[11], type: 'blue'},
+                {pos:{x:1,z:2},next:[12], type: 'red'},
+                {pos:{x:0,z:2},next:[13], type: 'item'}, // Was 'draw'
+                {pos:{x:-1,z:2},next:[14], type: 'blue'},
+                {pos:{x:-1,z:3},next:[15], type: 'blue'},
+                {pos:{x:-1,z:4},next:[16], type: 'red'},
+                {pos:{x:0,z:4},next:[17], type: 'blue'},
+                {pos:{x:1,z:4},next:[18], type: 'event'}, // Was 'discard'
+                {pos:{x:2,z:4},next:[19], type: 'blue'},
+                {pos:{x:3,z:4},next:[20], type: 'red'},
+                {pos:{x:4,z:4},next:[21], type: 'blue'},
+                {pos:{x:5,z:4},next:[22], type: 'blue'},
+                {pos:{x:6,z:4},next:[23], type: 'item'}, // Was 'draw'
+                {pos:{x:7,z:4},next:[24], type: 'blue'},
+                {pos:{x:8,z:4},next:[25], type: 'red'},
+                {pos:{x:8,z:3},next:[26], type: 'blue'},
+                {pos:{x:8,z:2},next:[27], type: 'blue'},
+                {pos:{x:8,z:1},next:[28], type: 'red'},
+                {pos:{x:8,z:0},next:[29], type: 'event'}, // Was 'discard'
+                {pos:{x:9,z:0},next:[30], type: 'blue'},
+                {pos:{x:10,z:0},next:[], type: 'finish'} // Finish
             ];
+
+            const typeColors = {
+                'start': 0x4ade80,  // Green
+                'finish': 0xfacc15, // Yellow
+                'blue': 0x3b82f6,   // Blue
+                'red': 0xef4444,    // Red
+                'item': 0xeab308,   // Yellow (different)
+                'event': 0xa855f7,  // Purple
+                'star': 0x3b82f6    // Star space defaults to blue
+            };
             
             pathData.forEach((data, index) => {
                 const isStart = index === 0;
                 const currentSpaceSize = isStart ? 5 : spaceSize;
                 
                 const spaceGeometry = new THREE.BoxGeometry(currentSpaceSize, 0.2, currentSpaceSize);
-                const spaceMaterial = isStart 
-                    ? new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })
-                    : new THREE.MeshStandardMaterial({ color: (index % 2 === 0) ? 0xffffff : 0xaaaaaa });
-
-                if (data.next.length === 0) spaceMaterial.color.setHex(0xffff00);
+                const spaceMaterial = new THREE.MeshStandardMaterial({ 
+                    color: typeColors[data.type] || 0xffffff
+                });
                 
                 const space = new THREE.Mesh(spaceGeometry, spaceMaterial);
                 const yPos = isStart ? 2.0 : 0.1;
@@ -479,9 +714,14 @@
                 scene.add(space);
                 boardSpaces.push({ mesh: space, position: position, next: data.next, previous: [], type: data.type });
 
-                if (data.type) {
+                // Add icon for item/event spaces
+                if (data.type === 'item' || data.type === 'event') {
                     const iconGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
-                    const iconMat = new THREE.MeshStandardMaterial({ color: data.type === 'draw' ? 0x3b82f6 : 0xef4444 });
+                    const iconMat = new THREE.MeshStandardMaterial({ 
+                        color: 0xffffff, 
+                        emissive: typeColors[data.type],
+                        emissiveIntensity: 1
+                    });
                     const icon = new THREE.Mesh(iconGeo, iconMat);
                     icon.position.set(position.x, position.y + 0.2, position.z);
                     scene.add(icon);
@@ -497,27 +737,50 @@
             });
         }
 
-        function createPlayers(selectedIndex){ // Kept the more complex version
+        function createPlayers(selectedIndex){
             const loader = new THREE.GLTFLoader();
             const playerModels = [
-                'players/jonah.glb',
-                'players/kyle.glb',
-                'players/rochelle.glb',
-                'players/vickie.glb'
+                'kmberry1989/partyboard/partyboard-c0a2f86ec63f1854bc71cce7ba67c142ae0d0b30/players/jonah.glb',
+                'kmberry1989/partyboard/partyboard-c0a2f86ec63f1854bc71cce7ba67c142ae0d0b30/players/kyle.glb',
+                'kmberry1989/partyboard/partyboard-c0a2f86ec63f1854bc71cce7ba67c142ae0d0b30/players/rochelle.glb',
+                'kmberry1989/partyboard/partyboard-c0a2f86ec63f1854bc71cce7ba67c142ae0d0b30/players/vickie.glb'
             ];
             const startPosition = boardSpaces[0].position;
 
             playerModels.forEach((model, i) => {
                 loader.load(model, (gltf) => {
-                    const mesh = gltf.scene;
-                    mesh.scale.set(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
-                    mesh.traverse(node => { if (node.isMesh) node.castShadow = true; });
+                    const modelMesh = gltf.scene;
+
+                    // --- NEW: CENTERING LOGIC ---
+                    // 1. Get the bounding box
+                    const box = new THREE.Box3().setFromObject(modelMesh);
+                    
+                    // 2. Apply offset to the model to align its bottom-center to (0,0,0)
+                    modelMesh.position.y -= box.min.y; // Align bottom to 0
+                    // Note: X and Z centering seems less critical if models are already centered,
+                    // but we can add this if they still look off:
+                    // const center = new THREE.Vector3();
+                    // box.getCenter(center);
+                    // modelMesh.position.x -= center.x;
+                    // modelMesh.position.z -= center.z;
+
+                    // 3. Create a parent Group (this is the new 'player' object)
+                    const playerGroup = new THREE.Group();
+                    playerGroup.add(modelMesh);
+                    // --- END CENTERING LOGIC ---
+
+                    playerGroup.scale.set(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
+                    playerGroup.traverse(node => { if (node.isMesh) node.castShadow = true; });
 
                     const offsetX = (i % 2 === 0 ? -PLAYER_START_OFFSET : PLAYER_START_OFFSET);
                     const offsetZ = (i < 2 ? -PLAYER_START_OFFSET : PLAYER_START_OFFSET);
-                    mesh.position.set(startPosition.x + offsetX, startPosition.y + PLAYER_Y_OFFSET, startPosition.z + offsetZ);
-                    scene.add(mesh);
-                    players.push({ mesh: mesh, positionIndex: 0, previousPositionIndex: 0, id: i });
+                    
+                    // Position the parent Group
+                    playerGroup.position.set(startPosition.x + offsetX, startPosition.y + PLAYER_Y_OFFSET, startPosition.z + offsetZ);
+                    scene.add(playerGroup);
+                    
+                    // Store the Group as the 'mesh'
+                    players.push({ mesh: playerGroup, positionIndex: 0, previousPositionIndex: 0, id: i });
 
                     if (i === selectedIndex) {
                         activePlayerIndex = i;
@@ -526,7 +789,10 @@
                         controls.target.copy(gameViews.board.controlsTarget);
                     }
                     playersLoaded++;
-                    if(playersLoaded === playerModels.length) startIntro();
+                    if(playersLoaded === playerModels.length) {
+                        updatePlayerStatsUI(); // Update UI now that players exist
+                        startIntro();
+                    }
                 }, undefined, (error) => {
                     console.error(`An error happened loading model: ${model}`, error);
                 });
@@ -587,6 +853,7 @@
             scene.add(moon);
         }
 
+        // --- (Physics and Dice functions remain the same) ---
         function createDiceMaterials(){
             const size = 128;
             const drawFace = (spots) => {
@@ -627,8 +894,7 @@
                 drawFace(faces[4])
             ];
         }
-
-        function initPhysics(){ // Kept the non-minified version
+        function initPhysics(){
             world = new CANNON.World();
             world.gravity.set(0, -9.82 * 2, 0);
             world.broadphase = new CANNON.NaiveBroadphase();
@@ -651,7 +917,7 @@
             floorBody.position.copy(trayPosition);
             world.addBody(floorBody);
             
-            const woodTexture = new THREE.TextureLoader().load('assets/wood_texture.png');
+            const woodTexture = new THREE.TextureLoader().load('kmberry1989/partyboard/partyboard-c0a2f86ec63f1854bc71cce7ba67c142ae0d0b30/assets/wood_texture.png');
             const trayMaterial = new THREE.MeshStandardMaterial({ map: woodTexture });
 
             const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(traySize, wallThickness, traySize), trayMaterial);
@@ -669,8 +935,7 @@
                 scene.add(wallMesh);
             });
         }
-
-        function startDiceRoll(){ // Kept the non-minified version
+        function startDiceRoll(){
             if (Tone.context.state !== 'running') {
                 Tone.context.resume();
             }
@@ -688,8 +953,7 @@
                 });
             });
         }
-        
-        function finishDiceRoll(e){ // Kept the non-minified version
+        function finishDiceRoll(e){
             isRollInProgress=!1;
             const t=e[0]+e[1];
             document.getElementById("message").innerText=`Player ${activePlayerIndex+1} rolled ${e[0]} + ${e[1]} = ${t}!`;
@@ -697,8 +961,7 @@
                 turnActionQueue.push(()=>movePlayer(t)),processTurnQueue()
             });
         }
-        
-        function checkDiceSettled(e){ // Kept the non-minified version
+        function checkDiceSettled(e){
             if(!isRollInProgress)return;
             let t=!0;
             const o=.2;
@@ -729,13 +992,13 @@
                 }
             }
         }
-        
-        function getDiceResult(e){ // Kept the non-minified version
+        function getDiceResult(e){
             const t=new CANNON.Vec3(0,1,0);
             let o=-1,a=-1;
             return [{v:new CANNON.Vec3(0,0,1),r:1},{v:new CANNON.Vec3(0,0,-1),r:6},{v:new CANNON.Vec3(0,1,0),r:2},{v:new CANNON.Vec3(0,-1,0),r:5},{v:new CANNON.Vec3(1,0,0),r:3},{v:new CANNON.Vec3(-1,0,0),r:4}].forEach(r=>{const d=e.quaternion.vmult(r.v),i=d.dot(t);i>o&&(o=i,a=r.r)}),a
         }
         
+        // --- (Intro and Player Highlighting functions remain the same) ---
         function startIntro(){
             isCameraTransition = true;
             let idx = 0;
@@ -755,7 +1018,6 @@
             }
             showNext();
         }
-
         function highlightActivePlayer(player, done){
             isCameraTransition = true;
             const originalScale = player.mesh.scale.clone();
@@ -778,42 +1040,126 @@
             }).start();
         }
 
+        // --- MODIFIED TURN LOGIC ---
+
         function startTurnForActivePlayer(){
             const player = players[activePlayerIndex];
             document.getElementById("message").innerText = `Player ${activePlayerIndex+1}'s Turn!`;
+            updatePlayerStatsUI(); // Update UI for the new turn
             highlightActivePlayer(player, () => {
                 document.getElementById("ui").style.opacity = "1";
                 document.getElementById("diceButton").disabled = false;
-                updateHandUI();
+                updateHandUI(); // Update hand for the active player
                 processTurnQueue();
-                setTimeout(()=>{ if(!isRollInProgress) startDiceRoll(); },1000);
+                // Auto-roll disabled for now to let player use cards
+                // setTimeout(()=>{ if(!isRollInProgress) startDiceRoll(); },1000);
             });
         }
 
-        function nextTurn(){ // Kept the non-minified version
-            activePlayerIndex = (activePlayerIndex + 1) % players.length;
+        /**
+         * New function to handle the minigame phase.
+         * This is a STUB.
+         */
+        function startMinigamePhase() {
+            // Show a transition overlay
+            const panel = document.getElementById('minigameTransition');
+            panel.style.display = 'flex';
+
+            // In a real game, you would load the minigame here.
+            // For now, we just wait 3 seconds.
+            setTimeout(() => {
+                // Award dummy coins
+                for(let i = 0; i < playerCoins.length; i++) {
+                    playerCoins[i] += 10;
+                }
+                
+                // Hide overlay and finish the phase
+                panel.style.display = 'none';
+                finishMinigamePhase();
+            }, 3000);
+        }
+
+        /**
+         * New function to clean up after a minigame and start the next round.
+         */
+        function finishMinigamePhase() {
+            currentRound++;
+            updatePlayerStatsUI();
+
+            if (currentRound > maxRounds) {
+                // Game Over
+                let winner = 0;
+                let maxStars = -1;
+                for(let i=0; i<players.length; i++) {
+                    if(playerStars[i] > maxStars) {
+                        maxStars = playerStars[i];
+                        winner = i;
+                    }
+                    // Tie-breaker with coins
+                    else if (playerStars[i] === maxStars) {
+                        if (playerCoins[i] > playerCoins[winner]) {
+                            winner = i;
+                        }
+                    }
+                }
+                document.getElementById('message').innerText = `GAME OVER! Player ${winner + 1} wins!`;
+                document.getElementById('diceButton').disabled = true;
+                return;
+            }
+
+            // Start next round
+            activePlayerIndex = 0;
             startTurnForActivePlayer();
         }
 
+        function nextTurn(){
+            const isLastPlayer = activePlayerIndex === players.length - 1;
+
+            if (isLastPlayer) {
+                // Last player finished, start minigame phase
+                startMinigamePhase();
+            } else {
+                // Not the last player, just go to next player
+                activePlayerIndex = (activePlayerIndex + 1) % players.length;
+                startTurnForActivePlayer();
+            }
+        }
+
         function checkForFaceOff(e,t){const o=e.positionIndex,a=players.find(t=>t.id!==e.id&&t.positionIndex===o);a?startFaceOff(e,a):t()}
-        
         function startFaceOff(e,t){const o=document.getElementById("minigameFaceoff");document.getElementById("faceoffPlayers").innerText=`Player ${e.id+1} vs Player ${t.id+1}`,o.style.display="flex",document.getElementById("startFaceoffBtn").onclick=()=>{o.style.display="none",resolveFaceOff(e,t)}}
-        
         function resolveFaceOff(e,t){const o=.5>Math.random()?e:t,a=o===e?t:e;document.getElementById("message").innerText=`Player ${o.id+1} wins the face-off!`,movePlayerBack(a,3,()=>{processTurnQueue()})}
-        
         function movePlayerBack(e,t,o){let a=0;!function r(){a>=t||0===e.positionIndex?o():void 0!==(d=boardSpaces[e.positionIndex].previous[0])?(e.previousPositionIndex=e.positionIndex,e.positionIndex=d,animateMove(e,r)):o();var d;a++}()}
         
         function processTurnQueue(){if(turnActionQueue.length>0){(0,turnActionQueue.shift())()}}
         
-        function movePlayer(e){let t=0;const o=players[activePlayerIndex];!function a(){t>=e?turnActionQueue.push(()=>checkForFaceOff(o,()=>{turnActionQueue.push(()=>handleSpaceAction(o,()=>{turnActionQueue.push(nextTurn),processTurnQueue()})),processTurnQueue()})):(()=>{const e=boardSpaces[o.positionIndex];if(0===e.next.length)return document.getElementById("message").innerText=`Player ${o.id+1} finished!`,turnActionQueue.push(nextTurn),void processTurnQueue();o.previousPositionIndex=o.positionIndex,o.positionIndex=e.next[0],animateMove(o,a)})(),t++}()}
+        function movePlayer(e){
+            let t=0;
+            const o=players[activePlayerIndex];
+            !function a() {
+                t >= e ? 
+                    turnActionQueue.push(() => checkForFaceOff(o, () => {
+                        turnActionQueue.push(() => handleSpaceAction(o, () => {
+                            turnActionQueue.push(nextTurn); // Call nextTurn to advance game
+                            processTurnQueue();
+                        }));
+                        processTurnQueue();
+                    }))
+                :
+                    (() => {
+                        const e=boardSpaces[o.positionIndex];
+                        if(0===e.next.length) return document.getElementById("message").innerText=`Player ${o.id+1} finished!`, turnActionQueue.push(nextTurn), void processTurnQueue();
+                        o.previousPositionIndex=o.positionIndex,o.positionIndex=e.next[0],animateMove(o,a)
+                    })(),t++
+            }()
+        }
 
-        function animateMove(player, callback){ // Kept the non-minified version
+        function animateMove(player, callback){
             const targetPos = boardSpaces[player.positionIndex].position;
-            const pid = player.id;
-            const xOffset = PLAYER_MOVE_OFFSET * (pid % 2 === 0 ? -1 : 1);
-            const zOffset = PLAYER_MOVE_OFFSET * (pid < 2 ? -1 : 1);
             const y = targetPos.y + PLAYER_Y_OFFSET;
-            const dest = new THREE.Vector3(targetPos.x + xOffset, y, targetPos.z + zOffset);
+            
+            // --- NEW CENTERED DESTINATION ---
+            // The player group's origin is its bottom-center, so we move it to the space's center.
+            const dest = new THREE.Vector3(targetPos.x, y, targetPos.z);
 
             const highlight = () => {
                 const space = boardSpaces[player.positionIndex].mesh;
@@ -829,19 +1175,22 @@
             const startPos = player.mesh.position.clone();
             const targetRotY = Math.atan2(dest.x - startPos.x, dest.z - startPos.z);
             new TWEEN.Tween(player.mesh.rotation).to({ y: targetRotY }, 200).easing(TWEEN.Easing.Quadratic.Out).start();
-            new TWEEN.Tween(player.mesh.rotation).to({ z: 0.3 }, 100).yoyo(true).repeat(4).start();
+            
+            // Player "hop" animation
+            new TWEEN.Tween(player.mesh.position)
+                .to({ y: y + 1.5 }, 200) // Hop up
+                .easing(TWEEN.Easing.Quadratic.Out)
+                .chain(new TWEEN.Tween(player.mesh.position)
+                    .to({ y: y }, 200) // Hop down
+                    .easing(TWEEN.Easing.Quadratic.In)
+                ).start();
 
-            if (player.previousPositionIndex === 0) {
-                const peak = startPos.clone().lerp(dest, 0.5);
-                peak.y += 3;
-                const upTween = new TWEEN.Tween(player.mesh.position).to(peak, 300).easing(TWEEN.Easing.Quadratic.Out);
-                const downTween = new TWEEN.Tween(player.mesh.position).to(dest, 300).easing(TWEEN.Easing.Quadratic.In);
-                upTween.chain(downTween);
-                downTween.onComplete(highlight);
-                upTween.start();
-            } else {
-                new TWEEN.Tween(player.mesh.position).to(dest, 400).easing(TWEEN.Easing.Quadratic.Out).onComplete(highlight).start();
-            }
+            // Player horizontal movement
+            new TWEEN.Tween(player.mesh.position)
+                .to({ x: dest.x, z: dest.z }, 400)
+                .easing(TWEEN.Easing.Quadratic.Out)
+                .onComplete(highlight)
+                .start();
         }
         
         function updateBoardView(){
@@ -852,7 +1201,7 @@
             }
         }
 
-        function switchCameraView(e,t){ // Kept the non-minified version
+        function switchCameraView(e,t){
             currentView=e;
             if(e==="board")updateBoardView();
             const o=gameViews[e];
@@ -895,6 +1244,12 @@
             scene.background = skyColor;
             scene.fog.color.copy(skyColor);
             stars.forEach(s=>{ s.material.opacity = 0.5 + 0.5*Math.sin(clock.elapsedTime*2 + s.userData.phase); });
+
+            // Animate star
+            if (starObject) {
+                starObject.rotation.z += delta * 0.5;
+                starObject.position.y = boardSpaces[starSpaceIndex].position.y + 0.7 + Math.sin(clock.elapsedTime * 3) * 0.2;
+            }
         }
 
         const clock = new THREE.Clock();
