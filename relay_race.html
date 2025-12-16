@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relay Race - PartyVerse</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #87ceeb;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hud-text {
+            color: white;
+            font-weight: 800;
+            font-size: 2rem;
+            text-shadow: 2px 2px 0 #000;
+            -webkit-text-stroke: 1px black;
+        }
+
+        #lapCounter {
+            font-size: 4rem;
+            color: #fbbf24;
+        }
+
+        #startScreen {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+
+        .btn {
+            background: #ef4444;
+            color: white;
+            padding: 1rem 3rem;
+            border-radius: 99px;
+            font-weight: 900;
+            font-size: 2rem;
+            cursor: pointer;
+            pointer-events: auto;
+            border: 4px solid white;
+            transition: transform 0.1s;
+        }
+
+        .btn:hover {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="startScreen">
+        <h1 class="text-8xl font-black text-white mb-4 italic" style="-webkit-text-stroke: 2px black;">RELAY RACE</h1>
+        <p class="text-2xl text-gray-300 mb-8">3 Laps! Beat the Bots! Watch out for curves!</p>
+        <button id="startBtn" class="btn">START ENGINES</button>
+    </div>
+
+    <div id="ui">
+        <div class="flex justify-between w-full">
+            <div id="posDisplay" class="hud-text">POS: 1/4</div>
+            <div id="lapDisplay" class="hud-text">LAP: 1/3</div>
+        </div>
+        <div id="countdown"
+            class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-9xl font-black text-yellow-400 hud-text"
+            style="display:none;">3</div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <script>
+        let scene, camera, renderer, world;
+        let playerBody, playerMesh;
+        let karts = []; // Includes player at index 0
+        let gameActive = false;
+        let waypoints = [];
+        let trackWidth = 15;
+
+        let mainState = JSON.parse(localStorage.getItem('partyBoardState') || "{}");
+        let activePlayerId = mainState.activePlayerIndex || 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb);
+            scene.fog = new THREE.Fog(0x87ceeb, 20, 100);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+            scene.add(hemi);
+            const sun = new THREE.DirectionalLight(0xffffff, 1);
+            sun.position.set(50, 100, 50);
+            sun.castShadow = true;
+            sun.shadow.camera.left = -50;
+            sun.shadow.camera.right = 50;
+            sun.shadow.camera.top = 50;
+            sun.shadow.camera.bottom = -50;
+            scene.add(sun);
+
+            world = new CANNON.World();
+            world.gravity.set(0, -20, 0);
+            world.defaultContactMaterial.friction = 0.0; // Low friction for drift feel (handled by damping)
+
+            createTrack();
+            spawnKarts();
+
+            document.getElementById('startBtn').onclick = startCountdown;
+
+            loop();
+        }
+
+        function createTrack() {
+            // Simple Ovalish Track with curves
+            // Define points
+            const points = [];
+            const radiusX = 60;
+            const radiusZ = 40;
+            for (let i = 0; i <= 20; i++) {
+                const t = (i / 20) * Math.PI * 2;
+                const x = Math.cos(t) * radiusX + Math.sin(t * 2) * 10; // Wiggle
+                const z = Math.sin(t) * radiusZ;
+                points.push(new THREE.Vector3(x, 0, z));
+            }
+            waypoints = points;
+
+            // Ground
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x22c55e });
+            const ground = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -0.1;
+            scene.add(ground);
+
+            // Track Mesh (Extrude path?)
+            // Simplify: Just flat planes connecting waypoints for visuals, Walls collision
+            // Or just a big floor and we define "Track" by walls. Let's do Walls.
+
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const roadMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+
+            // Draw Road
+            const shape = new THREE.Shape();
+            shape.moveTo(points[0].x, points[0].z);
+            for (let i = 1; i < points.length; i++) shape.lineTo(points[i].x, points[i].z);
+
+            const roadGeo = new THREE.BufferGeometry().setFromPoints(points); // Line for debug
+            // Actually let's just use the floor as road and put walls around logic
+
+            // Visual Waypoints debgger (hidden)
+            // points.forEach(p => {
+            //     const m = new THREE.Mesh(new THREE.SphereGeometry(1), new THREE.MeshBasicMaterial({color:0xffff00}));
+            //     m.position.copy(p);
+            //     scene.add(m);
+            // });
+
+            // Create Inner and Outer walls
+            for (let i = 0; i < points.length - 1; i++) {
+                const p1 = points[i];
+                const p2 = points[i + 1];
+                const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+                const normal = new THREE.Vector3(-dir.z, 0, dir.x);
+
+                // Road Segment
+                const dist = p1.distanceTo(p2);
+                const mid = p1.clone().add(p2).multiplyScalar(0.5);
+                const roadSeg = new THREE.Mesh(new THREE.BoxGeometry(trackWidth, 0.1, dist + 2), roadMat);
+                roadSeg.position.copy(mid);
+                roadSeg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir); // Align
+
+                // Rotate 90deg? No, box is Width x Height x Length. 
+                // We desire Width to be trackWidth (X local), Length to be dist (Z local).
+                // So align Z to dir.
+
+                scene.add(roadSeg);
+                roadSeg.receiveShadow = true;
+
+                // Physics Walls (approximate)
+                // Left Wall
+                createWall(mid.clone().add(normal.clone().multiplyScalar(-trackWidth / 2 - 1)), dir, dist);
+                // Right Wall
+                createWall(mid.clone().add(normal.clone().multiplyScalar(trackWidth / 2 + 1)), dir, dist);
+            }
+        }
+
+        function createWall(pos, dir, len) {
+            const body = new CANNON.Body({ mass: 0 });
+            body.addShape(new CANNON.Box(new CANNON.Vec3(1, 2, len / 2)));
+            body.position.copy(pos);
+            // Orientation
+            const qt = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+            body.quaternion.copy(qt);
+            world.addBody(body);
+
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 4, len), new THREE.MeshStandardMaterial({ color: 0xcc0000 }));
+            mesh.position.copy(pos);
+            mesh.quaternion.copy(qt);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            // scene.add(mesh); // Walls invisible or visible? Let's make visible for now
+            const bumper = new THREE.Mesh(new THREE.BoxGeometry(1, 1, len), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+            bumper.position.copy(pos);
+            bumper.quaternion.copy(qt);
+            scene.add(bumper);
+        }
+
+        function spawnKarts() {
+            // Player
+            const pStart = waypoints[0].clone();
+            pStart.y = 2;
+            playerBody = createKartBody(pStart, 0xffff00);
+            playerMesh = createKartMesh(0x00ff00); // Green
+            scene.add(playerMesh);
+            karts.push({ body: playerBody, mesh: playerMesh, isPlayer: true, lap: 0, nextWp: 1, dist: 0 });
+
+            // AI (3 Bots)
+            const colors = [0xff0000, 0x0000ff, 0xff00ff];
+            for (let i = 0; i < 3; i++) {
+                const offset = new THREE.Vector3((i + 1) * 2, 0, -(i + 1) * 2); // Staggered grid
+                const pos = pStart.clone().add(offset);
+                const body = createKartBody(pos, colors[i]);
+                const mesh = createKartMesh(colors[i]);
+                scene.add(mesh);
+                karts.push({ body, mesh, isPlayer: false, lap: 0, nextWp: 1, speedFactor: 0.9 + Math.random() * 0.2 });
+            }
+        }
+
+        function createKartBody(pos, color) {
+            const body = new CANNON.Body({ mass: 150, linearDamping: 0.5, angularDamping: 0.5 });
+            body.addShape(new CANNON.Box(new CANNON.Vec3(1, 0.5, 1.5)));
+            body.position.copy(pos);
+            // Face next wp
+            const dir = new THREE.Vector3().subVectors(waypoints[1], waypoints[0]).normalize();
+            const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+            body.quaternion.copy(q);
+            world.addBody(body);
+            return body;
+        }
+
+        function createKartMesh(color) {
+            const group = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 3), new THREE.MeshStandardMaterial({ color }));
+            body.castShadow = true;
+            group.add(body);
+
+            // Wheels
+            const wGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.4);
+            const wMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+            const positions = [
+                { x: -1.2, z: 1 }, { x: 1.2, z: 1 },
+                { x: -1.2, z: -1 }, { x: 1.2, z: -1 }
+            ];
+            positions.forEach(p => {
+                const w = new THREE.Mesh(wGeo, wMat);
+                w.rotation.z = Math.PI / 2;
+                w.position.set(p.x, -0.2, p.z);
+                group.add(w);
+            });
+
+            // Driver Head
+            const h = new THREE.Mesh(new THREE.SphereGeometry(0.6), new THREE.MeshStandardMaterial({ color: 0xffdbac }));
+            h.position.set(0, 0.8, -0.5);
+            group.add(h);
+
+            return group;
+        }
+
+        function startCountdown() {
+            document.getElementById('startScreen').style.display = 'none';
+            const cd = document.getElementById('countdown');
+            cd.style.display = 'block';
+            let count = 3;
+
+            const int = setInterval(() => {
+                count--;
+                if (count > 0) cd.innerText = count;
+                else if (count === 0) {
+                    cd.innerText = "GO!";
+                    gameActive = true;
+                } else {
+                    cd.style.display = 'none';
+                    clearInterval(int);
+                }
+            }, 1000);
+        }
+
+        // Controls
+        const keys = { w: false, a: false, s: false, d: false, space: false };
+        window.onkeydown = e => {
+            if (e.key.toLowerCase() === 'w' || e.key === 'ArrowUp') keys.w = true;
+            if (e.key.toLowerCase() === 's' || e.key === 'ArrowDown') keys.s = true;
+            if (e.key.toLowerCase() === 'a' || e.key === 'ArrowLeft') keys.a = true;
+            if (e.key.toLowerCase() === 'd' || e.key === 'ArrowRight') keys.d = true;
+        };
+        window.onkeyup = e => {
+            if (e.key.toLowerCase() === 'w' || e.key === 'ArrowUp') keys.w = false;
+            if (e.key.toLowerCase() === 's' || e.key === 'ArrowDown') keys.s = false;
+            if (e.key.toLowerCase() === 'a' || e.key === 'ArrowLeft') keys.a = false;
+            if (e.key.toLowerCase() === 'd' || e.key === 'ArrowRight') keys.d = false;
+        };
+
+        function loop() {
+            requestAnimationFrame(loop);
+            world.step(1 / 60);
+
+            if (gameActive) {
+                // Player Control
+                updateKart(karts[0], keys);
+
+                // AI Control
+                for (let i = 1; i < karts.length; i++) {
+                    const aiKeys = getAIInput(karts[i]);
+                    updateKart(karts[i], aiKeys);
+                }
+            }
+
+            // Camera follow
+            const pPos = playerBody.position;
+            const pQuat = playerBody.quaternion;
+            const offset = new THREE.Vector3(0, 5, -10); // Behind and Up
+            offset.applyQuaternion(pQuat); // Rotate offset by player rot
+            // Just use simple follow
+            const camTarget = new THREE.Vector3(pPos.x, pPos.y + 6, pPos.z + 12);
+            // Smooth lerp
+            camera.position.lerp(camTarget, 0.1);
+            camera.lookAt(pPos);
+
+            // Sync Visuals & Check Laps
+            karts.forEach(k => {
+                k.mesh.position.copy(k.body.position);
+                k.mesh.quaternion.copy(k.body.quaternion);
+                checkWaypoints(k);
+            });
+
+            // Updates HUD
+            updateHUD();
+        }
+
+        function updateKart(kart, inputs) {
+            const body = kart.body;
+            const speed = 40 * (kart.speedFactor || 1); // AI speed variation
+            const turn = 2.0;
+
+            // Forward/Back (Local Z)
+            const forward = new CANNON.Vec3(0, 0, 1);
+            body.quaternion.vmult(forward, forward);
+
+            if (inputs.w) {
+                // Apply force? Or set velocity? Arcade style set velocity is easier for control
+                // Add to velocity
+                const force = forward.scale(speed * 50);
+                // body.applyForce(force, body.position);
+                // Velocity override for tightness
+                body.velocity.x += forward.x * 0.5;
+                body.velocity.z += forward.z * 0.5;
+            } else if (inputs.s) {
+                body.velocity.x -= forward.x * 0.2;
+                body.velocity.z -= forward.z * 0.2;
+            }
+
+            // Cap Speed
+            const maxSpeed = 30;
+            if (body.velocity.length() > maxSpeed) {
+                body.velocity.scale(maxSpeed / body.velocity.length(), body.velocity);
+            }
+
+            // Turn
+            if (inputs.a) body.angularVelocity.y = turn;
+            else if (inputs.d) body.angularVelocity.y = -turn;
+            else body.angularVelocity.y = 0;
+
+            // Keep upright
+            // body.quaternion.x = 0; body.quaternion.z = 0; // Hacky constraint
+            // Better: Angular damping handles spin out
+        }
+
+        function getAIInput(kart) {
+            const body = kart.body;
+            const targetWp = waypoints[kart.nextWp];
+
+            // Steer towards wp
+            const localPos = body.position;
+            const dx = targetWp.x - localPos.x;
+            const dz = targetWp.z - localPos.z;
+
+            // Angle to target
+            const angleTo = Math.atan2(dx, dz); // world angle
+
+            // Current heading
+            const forward = new CANNON.Vec3(0, 0, 1);
+            body.quaternion.vmult(forward, forward);
+            const currentAngle = Math.atan2(forward.x, forward.z);
+
+            let diff = angleTo - currentAngle;
+            // Normalize diff
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+
+            const k = { w: true, a: false, d: false, s: false };
+
+            // Rubber banding
+            // If Player is ahead (higher lap or higher wp), speed up
+            // Just basic logic here:
+            if (diff > 0.1) k.a = true;
+            if (diff < -0.1) k.d = true;
+
+            // Slow down on sharp turns
+            if (Math.abs(diff) > 1) k.w = false;
+
+            return k;
+        }
+
+        function checkWaypoints(kart) {
+            const wp = waypoints[kart.nextWp];
+            if (kart.body.position.distanceTo(wp) < 15) {
+                kart.nextWp++;
+                if (kart.nextWp >= waypoints.length) {
+                    kart.nextWp = 0;
+                    kart.lap++;
+                    if (kart.isPlayer) {
+                        document.getElementById('lapDisplay').innerText = `LAP: ${kart.lap + 1}/3`;
+                        if (kart.lap >= 3) finishRace(true);
+                    } else {
+                        if (kart.lap >= 3) {
+                            // AI Finished
+                            // If player hasn't finished, player loses eventually?
+                            // Or we just track rank
+                        }
+                    }
+                }
+            }
+        }
+
+        function updateHUD() {
+            // Calculate Rank
+            // Sort by Lap > NextWp > Distance to NextWp
+            const sorted = [...karts].sort((a, b) => {
+                if (a.lap !== b.lap) return b.lap - a.lap;
+                if (a.nextWp !== b.nextWp) return b.nextWp - a.nextWp;
+                const da = a.body.position.distanceTo(waypoints[a.nextWp]);
+                const db = b.body.position.distanceTo(waypoints[b.nextWp]);
+                return da - db; // Closer is better? Actually NextWp index increases as we go.
+                // Wait, closer to next WP means we haven't passed it yet. 
+                // We want the one closer to the target? Yes.
+                return da - db;
+            });
+
+            const pRank = sorted.findIndex(k => k.isPlayer);
+            document.getElementById('posDisplay').innerText = `POS: ${pRank + 1}/4`;
+
+            if (pRank >= 3 && karts[0].lap >= 3) { // Last place finish
+                finishRace(false);
+            }
+        }
+
+        function finishRace(won) {
+            if (!gameActive) return;
+            gameActive = false;
+
+            // Find rank
+            const sorted = [...karts].sort((a, b) => {
+                if (a.lap !== b.lap) return b.lap - a.lap;
+                if (a.nextWp !== b.nextWp) return b.nextWp - a.nextWp;
+                return a.body.position.distanceTo(waypoints[a.nextWp]) - b.body.position.distanceTo(waypoints[b.nextWp]);
+            });
+            const rank = sorted.findIndex(k => k.isPlayer) + 1;
+
+            const h1 = document.querySelector('#startScreen h1');
+            const p = document.querySelector('#startScreen p');
+            const btn = document.getElementById('startBtn');
+            const screen = document.getElementById('startScreen');
+
+            screen.style.display = 'flex';
+            btn.style.display = 'none';
+
+            h1.innerText = (rank === 1) ? "VICTORY!" : "FINISHED!";
+            p.innerText = `You placed ${rank}${getSuffix(rank)}!`;
+
+            // Rewards
+            const reward = Math.max(0, 25 - (rank - 1) * 10);
+            p.innerText += ` +${reward} Coins`;
+            mainState.playerCoins[activePlayerId] += reward;
+
+            localStorage.setItem('partyBoardState', JSON.stringify(mainState));
+            setTimeout(() => window.location.href = 'index.html', 3000);
+        }
+
+        function getSuffix(i) {
+            if (i === 1) return 'st';
+            if (i === 2) return 'nd';
+            if (i === 3) return 'rd';
+            return 'th';
+        }
+
+        init();
+
+    </script>
+    <script src="assets/mobile_controls.js"></script>
+</body>
+
+</html>

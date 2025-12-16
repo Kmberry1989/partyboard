@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coin Collector - PartyVerse</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 2rem;
+        }
+
+        .hud-text {
+            color: white;
+            font-weight: 800;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+            font-size: 2rem;
+        }
+
+        #startScreen {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #fbbf24, #d97706);
+            color: white;
+            padding: 1rem 3rem;
+            border-radius: 99px;
+            font-weight: 800;
+            font-size: 2rem;
+            cursor: pointer;
+            pointer-events: auto;
+            border: 4px solid white;
+            transition: transform 0.1s;
+        }
+
+        .btn:hover {
+            transform: scale(1.1);
+        }
+
+        #score {
+            font-size: 4rem;
+            color: #fbbf24;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="startScreen">
+        <h1 class="text-8xl font-black text-white mb-4 italic" style="-webkit-text-stroke: 2px black;">COIN COLLECTOR
+        </h1>
+        <p class="text-2xl text-gray-300 mb-8">Collect as many coins as you can in 30 seconds!</p>
+        <button id="startBtn" class="btn">GO!</button>
+    </div>
+
+    <div id="ui">
+        <div id="timer" class="hud-text">TIME: 30</div>
+        <div id="score" class="hud-text">0</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <script>
+        let scene, camera, renderer, world;
+        let playerBody, playerMesh;
+        let coins = [];
+        let gameActive = false;
+        let timeLeft = 30;
+        let score = 0;
+
+        let mainState = JSON.parse(localStorage.getItem('partyBoardState') || "{}");
+        let activePlayerId = mainState.activePlayerIndex || 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xF0F8FF); // Alice Blue
+            scene.fog = new THREE.Fog(0xF0F8FF, 20, 60);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 20, 15);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambient);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(10, 20, 10);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            world = new CANNON.World();
+            world.gravity.set(0, -30, 0);
+
+            createMaze();
+            createPlayer();
+            spawnCoins();
+            startLoop();
+
+            document.getElementById('startBtn').onclick = startGame;
+        }
+
+        function createMaze() {
+            const mat = new THREE.MeshStandardMaterial({ color: 0x64748b });
+            const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
+            groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(groundBody);
+
+            const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), new THREE.MeshStandardMaterial({ color: 0x94a3b8 }));
+            groundMesh.rotation.x = -Math.PI / 2;
+            groundMesh.receiveShadow = true;
+            scene.add(groundMesh);
+
+            // Walls (Simple Layout)
+            const walls = [
+                { x: 5, z: 5, w: 2, l: 10 }, { x: -5, z: -5, w: 2, l: 10 },
+                { x: 10, z: 0, w: 2, l: 2 }, { x: -10, z: 0, w: 2, l: 2 },
+                { x: 0, z: 10, w: 10, l: 2 }, { x: 0, z: -10, w: 10, l: 2 }
+            ];
+
+            walls.forEach(w => {
+                const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(w.w / 2, 2, w.l / 2)) });
+                body.position.set(w.x, 2, w.z);
+                world.addBody(body);
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w.w, 4, w.l), mat);
+                mesh.position.copy(body.position);
+                mesh.castShadow = true;
+                scene.add(mesh);
+            });
+        }
+
+        function createPlayer() {
+            const radius = 1;
+            playerBody = new CANNON.Body({ mass: 50, shape: new CANNON.Sphere(radius), linearDamping: 0.8 });
+            playerBody.position.set(0, 2, 0);
+            world.addBody(playerBody);
+            playerMesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 16), new THREE.MeshStandardMaterial({ color: 0x2563eb }));
+            scene.add(playerMesh);
+        }
+
+        function spawnCoins() {
+            const geo = new THREE.CylinderGeometry(0.5, 0.5, 0.1, 16);
+            const mat = new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0xfacc15, emissiveIntensity: 0.5 });
+
+            for (let i = 0; i < 30; i++) {
+                const coin = new THREE.Mesh(geo, mat);
+                const x = (Math.random() - 0.5) * 40;
+                const z = (Math.random() - 0.5) * 40;
+                coin.position.set(x, 1, z);
+                coin.rotation.x = Math.PI / 2;
+                coin.userData = { active: true };
+                scene.add(coin);
+                coins.push(coin);
+            }
+        }
+
+        function startGame() {
+            document.getElementById('startScreen').style.display = 'none';
+            gameActive = true;
+
+            const interval = setInterval(() => {
+                if (!gameActive) { clearInterval(interval); return; }
+                timeLeft--;
+                document.getElementById('timer').innerText = `TIME: ${timeLeft}`;
+                if (timeLeft <= 0) endGame();
+            }, 1000);
+        }
+
+        // Input
+        const keys = { w: false, a: false, s: false, d: false };
+        window.onkeydown = (e) => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = true;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = true;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = true;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = true;
+        };
+        window.onkeyup = (e) => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = false;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
+        };
+
+        function updatePhysics() {
+            if (!gameActive) return;
+            const force = 100;
+            if (keys.w) playerBody.applyForce(new CANNON.Vec3(0, 0, -force), playerBody.position);
+            if (keys.s) playerBody.applyForce(new CANNON.Vec3(0, 0, force), playerBody.position);
+            if (keys.a) playerBody.applyForce(new CANNON.Vec3(-force, 0, 0), playerBody.position);
+            if (keys.d) playerBody.applyForce(new CANNON.Vec3(force, 0, 0), playerBody.position);
+
+            playerMesh.position.copy(playerBody.position);
+            playerMesh.quaternion.copy(playerBody.quaternion);
+
+            // Collision
+            coins.forEach(c => {
+                if (!c.userData.active) return;
+                c.rotation.z += 0.05;
+                const dist = playerMesh.position.distanceTo(c.position);
+                if (dist < 2.5) {
+                    c.userData.active = false;
+                    c.visible = false;
+                    score++;
+                    document.getElementById('score').innerText = score;
+                }
+            });
+        }
+
+        function endGame() {
+            gameActive = false;
+            const timer = document.getElementById('timer');
+            const status = document.getElementById('status'); // Doesnt exist in this file, use timer or create one
+
+            timer.innerText = "TIME'S UP!";
+            document.getElementById('startScreen').innerHTML = `<h1 class='text-white text-6xl'>Finished!</h1><p class='text-white text-2xl'>Collected ${score} Coins!</p>`;
+            document.getElementById('startScreen').style.display = 'flex';
+
+            mainState.playerCoins[activePlayerId] += score;
+
+            setTimeout(() => {
+                localStorage.setItem('partyBoardState', JSON.stringify(mainState));
+                window.location.href = 'index.html';
+            }, 3000);
+        }
+
+        function startLoop() {
+            requestAnimationFrame(startLoop);
+            world.step(1 / 60);
+            updatePhysics();
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+    <script src="assets/mobile_controls.js"></script>
+</body>
+
+</html>

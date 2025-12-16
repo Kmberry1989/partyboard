@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PartyBoard Dev Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: #111;
+            color: #eee;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .card {
+            background: #222;
+            padding: 2rem;
+            border-radius: 1rem;
+            border: 1px solid #333;
+            transition: all 0.2s;
+            cursor: pointer;
+            text-decoration: none;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .card:hover {
+            background: #333;
+            transform: translateY(-5px);
+            border-color: #555;
+        }
+    </style>
+</head>
+
+<body class="p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-4xl font-bold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
+            PartyBoard Dev Hub</h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Main Game -->
+            <a href="index.html" class="card border-blue-500/30 ring-2 ring-blue-500/20">
+                <div class="text-2xl font-bold text-blue-400">🎲 Main Board</div>
+                <div class="text-gray-400 text-sm">Main game loop, board movement, and card system.</div>
+            </a>
+
+            <!-- Mini Games -->
+            <a href="relay_race.html" class="card">
+                <div class="text-xl font-bold text-red-400">🏎️ Relay Race</div>
+                <div class="text-gray-400 text-sm">Mario Kart clone. 3 Laps, AI, Waypoints.</div>
+            </a>
+
+            <a href="platform_panic.html" class="card">
+                <div class="text-xl font-bold text-purple-400">🏃 Platform Panic</div>
+                <div class="text-gray-400 text-sm">Survival jumping. Auto-bouncing mechanics.</div>
+            </a>
+
+            <a href="sumo_survivor.html" class="card">
+                <div class="text-xl font-bold text-orange-400">🤼 Sumo Survivor</div>
+                <div class="text-gray-400 text-sm">Physics knock-back arena.</div>
+            </a>
+
+            <a href="coin_scramble.html" class="card">
+                <div class="text-xl font-bold text-yellow-400">🪙 Coin Collector</div>
+                <div class="text-gray-400 text-sm">Timer based collection. High radius pickup.</div>
+            </a>
+
+            <a href="tank_trouble.html" class="card">
+                <div class="text-xl font-bold text-green-400">💥 Tank Trouble</div>
+                <div class="text-gray-400 text-sm">Maze shooter. Bouncing bullets.</div>
+            </a>
+
+            <a href="laser_tag.html" class="card">
+                <div class="text-xl font-bold text-cyan-400">🔫 Laser Lockup</div>
+                <div class="text-gray-400 text-sm">FPS Arena. Fading laser beams.</div>
+            </a>
+        </div>
+    </div>
+</body>
+
+</html>

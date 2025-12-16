@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Platform Panic - PartyVerse</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 2rem;
+        }
+
+        .hud-text {
+            color: white;
+            font-weight: 800;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+            font-size: 2rem;
+        }
+
+        #startScreen {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #f43f5e, #e11d48);
+            color: white;
+            padding: 1rem 3rem;
+            border-radius: 99px;
+            font-weight: 800;
+            font-size: 2rem;
+            cursor: pointer;
+            pointer-events: auto;
+            border: 4px solid white;
+            transition: transform 0.1s;
+        }
+
+        .btn:hover {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="startScreen">
+        <h1 class="text-8xl font-black text-white mb-4 italic" style="-webkit-text-stroke: 2px black;">PLATFORM PANIC
+        </h1>
+        <p class="text-2xl text-gray-300 mb-8">Bounce! Don't Fall!</p>
+        <button id="startBtn" class="btn">START GAME</button>
+    </div>
+
+    <div id="ui">
+        <div id="timer" class="hud-text">SURVIVE!</div>
+        <div id="status" class="hud-text" style="font-size: 1.5rem; opacity: 0.8;">Controls: WASD / Arrows to Move</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <script>
+        // === STATE & SETUP ===
+        let scene, camera, renderer, world;
+        let platforms = [];
+        let playerBody, playerMesh;
+        let opponents = [];
+        let gameActive = false;
+        const platformSize = 2;
+        const gridSize = 6;
+        let lastTime;
+
+        // Load Main Board State to know who is who (optional, mostly for coins return)
+        let mainState = JSON.parse(localStorage.getItem('partyBoardState') || "{}");
+        let activePlayerId = mainState.activePlayerIndex || 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x220033);
+            scene.fog = new THREE.Fog(0x220033, 10, 40);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 15, 12);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambient);
+            const dirLight = new THREE.DirectionalLight(0xff00ff, 1);
+            dirLight.position.set(10, 20, 10);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            // Physics
+            world = new CANNON.World();
+            world.gravity.set(0, -20, 0);
+
+            createArena();
+            createPlayer();
+            createOpponents();
+            startLoop();
+
+            document.getElementById('startBtn').onclick = startGame;
+        }
+
+        function createArena() {
+            const mat = new THREE.MeshStandardMaterial({ color: 0x3b82f6 });
+            const shakeMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+
+            for (let x = -gridSize / 2; x < gridSize / 2; x++) {
+                for (let z = -gridSize / 2; z < gridSize / 2; z++) {
+                    const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(platformSize / 2 - 0.1, 0.5, platformSize / 2 - 0.1)) });
+                    body.position.set(x * platformSize + platformSize / 2, 0, z * platformSize + platformSize / 2);
+                    world.addBody(body);
+
+                    const mesh = new THREE.Mesh(new THREE.BoxGeometry(platformSize - 0.2, 1, platformSize - 0.2), mat.clone());
+                    mesh.position.copy(body.position);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    scene.add(mesh);
+
+                    platforms.push({ body, mesh, active: true, shakeTimer: 0 });
+                }
+            }
+        }
+
+        function createPlayer() {
+            const size = 0.5;
+            playerBody = new CANNON.Body({ mass: 5, shape: new CANNON.Box(new CANNON.Vec3(size, size, size)), fixedRotation: true });
+            playerBody.position.set(0, 5, 0);
+            playerBody.linearDamping = 0.5;
+            world.addBody(playerBody);
+
+            playerMesh = new THREE.Mesh(new THREE.BoxGeometry(size * 2, size * 2, size * 2), new THREE.MeshStandardMaterial({ color: 0x4ade80 }));
+            scene.add(playerMesh);
+        }
+
+        function createOpponents() {
+            // Simple AI bots
+            for (let i = 0; i < 3; i++) {
+                const size = 0.5;
+                const body = new CANNON.Body({ mass: 5, shape: new CANNON.Box(new CANNON.Vec3(size, size, size)), fixedRotation: true });
+                body.position.set((Math.random() - 0.5) * 10, 5, (Math.random() - 0.5) * 10);
+                body.linearDamping = 0.5;
+                world.addBody(body);
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(size * 2, size * 2, size * 2), new THREE.MeshStandardMaterial({ color: 0xffaaaa }));
+                scene.add(mesh);
+                opponents.push({ body, mesh, id: i, dead: false });
+            }
+        }
+
+        function startGame() {
+            document.getElementById('startScreen').style.display = 'none';
+            gameActive = true;
+
+            // Platform dropping logic
+            setInterval(() => {
+                if (!gameActive) return;
+                // Pick random platform to drop
+                const activePlatforms = platforms.filter(p => p.active);
+                if (activePlatforms.length > 0) {
+                    const target = activePlatforms[Math.floor(Math.random() * activePlatforms.length)];
+                    target.mesh.material.color.setHex(0xff0000); // Warn
+                    setTimeout(() => {
+                        target.active = false;
+                        world.removeBody(target.body);
+                        target.mesh.position.y -= 10; // Fall visual
+                    }, 1000);
+                }
+            }, 1000); // One drops every second
+        }
+
+        // Input
+        const keys = { w: false, a: false, s: false, d: false, space: false };
+        window.onkeydown = (e) => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = true;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = true;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = true;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = true;
+            if (e.key === ' ') keys.space = true;
+        };
+        window.onkeyup = (e) => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = false;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
+            if (e.key === ' ') keys.space = false;
+        };
+
+        function updatePhysics() {
+            if (!gameActive) return;
+            const speed = 10;
+            const vel = playerBody.velocity;
+
+            if (keys.w) vel.z = -speed;
+            else if (keys.s) vel.z = speed;
+            else vel.z = vel.z * 0.9;
+
+            if (keys.a) vel.x = -speed;
+            else if (keys.d) vel.x = speed;
+            else vel.x = vel.x * 0.9;
+
+            if (Math.abs(vel.y) < 0.1) vel.y = 10; // Match AI jump height
+
+            // AI Logic (Constant bouncing)
+            opponents.forEach(op => {
+                if (op.dead) return;
+                if (Math.abs(op.body.velocity.y) < 0.1) {
+                    op.body.velocity.y = 10;
+                    // Move towards safe zone / center? Or just random
+                    // Simple random move for now, but constant
+                    op.body.velocity.x = (Math.random() - 0.5) * 10;
+                    op.body.velocity.z = (Math.random() - 0.5) * 10;
+                }
+                op.mesh.position.copy(op.body.position);
+                if (op.body.position.y < -10) op.dead = true;
+            });
+
+            // Player sync
+            playerMesh.position.copy(playerBody.position);
+            playerMesh.quaternion.copy(playerBody.quaternion);
+
+            // Win/Loss Check
+            if (playerBody.position.y < -5) {
+                endGame(false);
+            } else if (opponents.every(o => o.dead)) {
+                endGame(true);
+            }
+        }
+
+        function endGame(won) {
+            gameActive = false;
+            const status = document.getElementById('status');
+            const timer = document.getElementById('timer');
+
+            if (won) {
+                timer.innerText = "VICTORY!";
+                status.innerText = "You survived! +20 Coins";
+                mainState.playerCoins[activePlayerId] += 20;
+            } else {
+                timer.innerText = "ELIMINATED!";
+                status.innerText = "Better luck next time. +5 Coins";
+                mainState.playerCoins[activePlayerId] += 5;
+            }
+
+            // Save and Return
+            setTimeout(() => {
+                localStorage.setItem('partyBoardState', JSON.stringify(mainState));
+                window.location.href = 'index.html';
+            }, 3000);
+        }
+
+        function startLoop() {
+            requestAnimationFrame(startLoop);
+            world.step(1 / 60);
+            updatePhysics();
+
+            // Visual Update for falling plats
+            platforms.forEach(p => {
+                if (!p.active) {
+                    p.mesh.position.y -= 0.2;
+                    p.mesh.rotation.x += 0.05;
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+    <script src="assets/mobile_controls.js"></script>
+</body>
+
+</html>

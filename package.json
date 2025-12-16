@@ -1,0 +1,23 @@
+{
+  "name": "partyboard",
+  "version": "1.0.0",
+  "description": "A 3D browser-based party board game.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "three.js",
+    "game",
+    "3d"
+  ],
+  "author": "Kyle Berry",
+  "license": "ISC",
+  "devDependencies": {
+    "vite": "^7.3.0"
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  }
+}

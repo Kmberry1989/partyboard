@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sumo Survivor - PartyVerse</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 2rem;
+        }
+
+        .hud-text {
+            color: white;
+            font-weight: 800;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+            font-size: 2rem;
+        }
+
+        #startScreen {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #facc15, #ca8a04);
+            color: white;
+            padding: 1rem 3rem;
+            border-radius: 99px;
+            font-weight: 800;
+            font-size: 2rem;
+            cursor: pointer;
+            pointer-events: auto;
+            border: 4px solid white;
+            transition: transform 0.1s;
+        }
+
+        .btn:hover {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="startScreen">
+        <h1 class="text-8xl font-black text-white mb-4 italic" style="-webkit-text-stroke: 2px black;">SUMO SURVIVOR
+        </h1>
+        <p class="text-2xl text-gray-300 mb-8">Push Them Off! Be the Last One!</p>
+        <button id="startBtn" class="btn">FIGHT!</button>
+    </div>
+
+    <div id="ui">
+        <div id="timer" class="hud-text">KNOCKOUT!</div>
+        <div id="status" class="hud-text" style="font-size: 1.5rem; opacity: 0.8;">Controls: WASD / Arrows to Move
+            (Physics Based)</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <script>
+        let scene, camera, renderer, world;
+        let playerBody, playerMesh;
+        let opponents = [];
+        let gameActive = false;
+
+        let mainState = JSON.parse(localStorage.getItem('partyBoardState') || "{}");
+        let activePlayerId = mainState.activePlayerIndex || 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x331111);
+            scene.fog = new THREE.Fog(0x331111, 20, 60);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 20, 15);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambient);
+            const dirLight = new THREE.DirectionalLight(0xffaa00, 1);
+            dirLight.position.set(-10, 20, -10);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            world = new CANNON.World();
+            world.gravity.set(0, -30, 0);
+
+            // Arena
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+            const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Cylinder(12, 12, 1, 32) });
+            groundBody.position.set(0, -0.5, 0);
+            world.addBody(groundBody);
+            const groundMesh = new THREE.Mesh(new THREE.CylinderGeometry(12, 12, 1, 32), groundMat);
+            groundMesh.position.copy(groundBody.position); // CANNON cylinder is y-up, THREE is y-up, but orientation might differ? No they match usually properly now
+            groundMesh.receiveShadow = true;
+            scene.add(groundMesh);
+
+            createPlayer();
+            createOpponents();
+            startLoop();
+
+            document.getElementById('startBtn').onclick = startGame;
+        }
+
+        function createPlayer() {
+            const radius = 1;
+            playerBody = new CANNON.Body({ mass: 20, shape: new CANNON.Sphere(radius), linearDamping: 0.5 });
+            playerBody.position.set(0, 2, 8);
+            world.addBody(playerBody);
+
+            playerMesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 16), new THREE.MeshStandardMaterial({ color: 0x4ade80 }));
+            scene.add(playerMesh);
+        }
+
+        function createOpponents() {
+            const startPositions = [{ x: -6, z: -6 }, { x: 6, z: -6 }, { x: 0, z: -8 }];
+            startPositions.forEach((pos, i) => {
+                const radius = 1;
+                const body = new CANNON.Body({ mass: 20, shape: new CANNON.Sphere(radius), linearDamping: 0.5 });
+                body.position.set(pos.x, 2, pos.z);
+                world.addBody(body);
+                const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 16), new THREE.MeshStandardMaterial({ color: 0xff4444 }));
+                scene.add(mesh);
+                opponents.push({ body, mesh, id: i, dead: false });
+            });
+        }
+
+        function startGame() {
+            document.getElementById('startScreen').style.display = 'none';
+            gameActive = true;
+        }
+
+        // Input
+        const keys = { w: false, a: false, s: false, d: false };
+        window.onkeydown = (e) => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = true;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = true;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = true;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = true;
+        };
+        window.onkeyup = (e) => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = false;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
+        };
+
+        function updatePhysics() {
+            if (!gameActive) return;
+            const force = 50;
+
+            // Apply forces
+            if (keys.w) playerBody.applyForce(new CANNON.Vec3(0, 0, -force), playerBody.position);
+            if (keys.s) playerBody.applyForce(new CANNON.Vec3(0, 0, force), playerBody.position);
+            if (keys.a) playerBody.applyForce(new CANNON.Vec3(-force, 0, 0), playerBody.position);
+            if (keys.d) playerBody.applyForce(new CANNON.Vec3(force, 0, 0), playerBody.position);
+
+            // Sync
+            playerMesh.position.copy(playerBody.position);
+            playerMesh.quaternion.copy(playerBody.quaternion);
+
+            // Win/Loss
+            if (playerBody.position.y < -5) endGame(false);
+
+            // AI Logic
+            opponents.forEach(op => {
+                if (op.dead) return;
+                // Chase player
+                const dx = playerBody.position.x - op.body.position.x;
+                const dz = playerBody.position.z - op.body.position.z;
+                const len = Math.sqrt(dx * dx + dz * dz) || 1;
+                // Add some randomness
+                if (Math.random() < 0.1) {
+                    op.body.applyForce(new CANNON.Vec3((dx / len) * 30, 0, (dz / len) * 30), op.body.position);
+                }
+
+                op.mesh.position.copy(op.body.position);
+                op.mesh.quaternion.copy(op.body.quaternion);
+
+                if (op.body.position.y < -5) op.dead = true;
+            });
+
+            if (opponents.every(o => o.dead)) endGame(true);
+        }
+
+        function endGame(won) {
+            gameActive = false;
+            const status = document.getElementById('status');
+            const timer = document.getElementById('timer');
+
+            if (won) {
+                timer.innerText = "CHAMPION!";
+                status.innerText = "You are the Sumo Master! +30 Coins";
+                mainState.playerCoins[activePlayerId] += 30;
+            } else {
+                timer.innerText = "RING OUT!";
+                status.innerText = "Better luck next time. +5 Coins";
+                mainState.playerCoins[activePlayerId] += 5;
+            }
+
+            // Save and Return
+            setTimeout(() => {
+                localStorage.setItem('partyBoardState', JSON.stringify(mainState));
+                window.location.href = 'index.html';
+            }, 3000);
+        }
+
+        function startLoop() {
+            requestAnimationFrame(startLoop);
+            world.step(1 / 60);
+            updatePhysics();
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+    <script src="assets/mobile_controls.js"></script>
+</body>
+
+</html>

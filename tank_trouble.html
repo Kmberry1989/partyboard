@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tank Trouble - PartyVerse</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #333;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #ui {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .hud-text {
+            color: white;
+            font-weight: 800;
+            font-size: 2rem;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        #startScreen {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+
+        .btn {
+            background: #4ade80;
+            color: black;
+            padding: 1rem 3rem;
+            border-radius: 99px;
+            font-weight: 900;
+            font-size: 2rem;
+            cursor: pointer;
+            pointer-events: auto;
+            border: 4px solid white;
+            transition: transform 0.1s;
+        }
+
+        .btn:hover {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="startScreen">
+        <h1 class="text-8xl font-black text-white mb-4 italic" style="-webkit-text-stroke: 2px black;">TANK TROUBLE</h1>
+        <p class="text-2xl text-gray-300 mb-8">Destroy the Enemy Tanks! Bullets Bounce!</p>
+        <button id="startBtn" class="btn">ROLL OUT!</button>
+    </div>
+
+    <div id="ui">
+        <div id="status" class="hud-text">ENEMIES LEFT: 3</div>
+        <div class="hud-text text-sm opacity-75">WASD to Move • SPACE to Shoot</div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <script>
+        let scene, camera, renderer, world;
+        let playerBody, playerMesh;
+        let bullets = [];
+        let enemies = [];
+        let walls = [];
+        let gameActive = false;
+        let lastTime = 0;
+        let lastShootTime = 0;
+
+        let mainState = JSON.parse(localStorage.getItem('partyBoardState') || "{}");
+        let activePlayerId = mainState.activePlayerIndex || 0;
+
+        function init() {
+            // Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            // Camera (Top Down)
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 30, 0);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // Light
+            const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambient);
+            const spot = new THREE.SpotLight(0xffffff, 1); // Spotlight for dramatic shadows
+            spot.position.set(0, 40, 10);
+            spot.castShadow = true;
+            spot.shadow.mapSize.width = 2048;
+            spot.shadow.mapSize.height = 2048;
+            scene.add(spot);
+
+            // Physics World
+            world = new CANNON.World();
+            world.gravity.set(0, -9.8, 0);
+            world.defaultContactMaterial.friction = 0.1;
+
+            createMaze();
+            createPlayer(new CANNON.Vec3(0, 1, 0));
+            spawnEnemies();
+
+            // Loop
+            requestAnimationFrame(update);
+
+            document.getElementById('startBtn').onclick = startGame;
+        }
+
+        function createMaze() {
+            // Ground
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 });
+            const groundGeo = new THREE.PlaneGeometry(50, 50);
+            const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+            groundMesh.rotation.x = -Math.PI / 2;
+            groundMesh.receiveShadow = true;
+            scene.add(groundMesh);
+
+            const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
+            groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(groundBody);
+
+            // Walls (Maze Pattern)
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+            const wallData = [
+                // Borders
+                { x: 0, z: -25, w: 50, h: 2 }, { x: 0, z: 25, w: 50, h: 2 },
+                { x: -25, z: 0, w: 2, h: 50 }, { x: 25, z: 0, w: 2, h: 50 },
+                // Inner Walls
+                { x: -10, z: -10, w: 10, h: 2 }, { x: 10, z: 10, w: 10, h: 2 },
+                { x: -10, z: 10, w: 2, h: 10 }, { x: 10, z: -10, w: 2, h: 10 },
+                { x: 0, z: 0, w: 10, h: 4 }
+            ];
+
+            wallData.forEach(w => {
+                const shape = new CANNON.Box(new CANNON.Vec3(w.w / 2, 2, h = w.h / 2));
+                const body = new CANNON.Body({ mass: 0 });
+                body.addShape(shape);
+                body.position.set(w.x, 2, w.z);
+                world.addBody(body);
+
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w.w, 4, w.h * 2), wallMat);
+                mesh.position.copy(body.position);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                scene.add(mesh);
+            });
+        }
+
+        function createPlayer(pos) {
+            const shape = new CANNON.Box(new CANNON.Vec3(1, 0.5, 1.5));
+            playerBody = new CANNON.Body({ mass: 50 });
+            playerBody.addShape(shape);
+            playerBody.position.copy(pos);
+            playerBody.linearDamping = 0.5;
+            playerBody.angularDamping = 0.5;
+            world.addBody(playerBody);
+
+            // Tank Mesh
+            const tankGroup = new THREE.Group();
+
+            const bodyGeo = new THREE.BoxGeometry(2, 1, 3);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x4ade80 }); // Green
+            const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+            bodyMesh.castShadow = true;
+            tankGroup.add(bodyMesh);
+
+            const turretGeo = new THREE.BoxGeometry(1.2, 0.8, 1.5);
+            const turretMesh = new THREE.Mesh(turretGeo, bodyMat);
+            turretMesh.position.y = 0.8;
+            tankGroup.add(turretMesh);
+
+            const barrelGeo = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
+            const barrelMesh = new THREE.Mesh(barrelGeo, new THREE.MeshStandardMaterial({ color: 0x222222 }));
+            barrelMesh.rotation.x = Math.PI / 2;
+            barrelMesh.position.set(0, 0.8, 1.5); // Forward is +Z ? Actually we need to check orientation
+            tankGroup.add(barrelMesh);
+
+            playerMesh = tankGroup;
+            scene.add(playerMesh);
+        }
+
+        function spawnEnemies() {
+            const startPos = [
+                { x: -18, z: -18 }, { x: 18, z: 18 }, { x: 18, z: -18 }
+            ];
+
+            startPos.forEach((pos, i) => {
+                const shape = new CANNON.Box(new CANNON.Vec3(1, 0.5, 1.5));
+                const body = new CANNON.Body({ mass: 50, linearDamping: 0.5, angularDamping: 0.5 });
+                body.addShape(shape);
+                body.position.set(pos.x, 1, pos.z);
+                // Face random direction
+                body.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.random() * Math.PI * 2);
+                world.addBody(body);
+
+                // Red Tank
+                const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 3), new THREE.MeshStandardMaterial({ color: 0xef4444 }));
+                bodyMesh.castShadow = true;
+                scene.add(bodyMesh);
+
+                enemies.push({ body, mesh: bodyMesh, id: i, dead: false, lastShoot: 0 });
+            });
+        }
+
+        function startGame() {
+            gameActive = true;
+            document.getElementById('startScreen').style.display = 'none';
+        }
+
+        function update(time) {
+            requestAnimationFrame(update);
+            if (!gameActive) return;
+
+            const dt = (time - lastTime) / 1000;
+            lastTime = time;
+
+            world.step(1 / 60);
+
+            // Player Controls
+            updatePlayerControl(dt, time);
+
+            // Enemy AI
+            updateAI(time);
+
+            // Bullets
+            updateBullets();
+
+            // Sync Meshes
+            playerMesh.position.copy(playerBody.position);
+            playerMesh.quaternion.copy(playerBody.quaternion);
+
+            enemies.forEach(e => {
+                if (e.dead) return;
+                e.mesh.position.copy(e.body.position);
+                e.mesh.quaternion.copy(e.body.quaternion);
+            });
+        }
+
+        // Input
+        const keys = { w: false, a: false, s: false, d: false, space: false };
+        window.onkeydown = (e) => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = true;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = true;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = true;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = true;
+            if (e.key === ' ') keys.space = true;
+        };
+        window.onkeyup = (e) => {
+            if (e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
+            if (e.key === 's' || e.key === 'ArrowDown') keys.s = false;
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
+            if (e.key === ' ') keys.space = false;
+        };
+
+        function updatePlayerControl(dt, time) {
+            const speed = 15;
+            const turnSpeed = 3;
+
+            if (keys.w) {
+                const forward = new CANNON.Vec3(0, 0, 1);
+                playerBody.quaternion.vmult(forward, forward);
+                playerBody.velocity.set(forward.x * speed, playerBody.velocity.y, forward.z * speed);
+            } else if (keys.s) {
+                const back = new CANNON.Vec3(0, 0, -1);
+                playerBody.quaternion.vmult(back, back);
+                playerBody.velocity.set(back.x * speed, playerBody.velocity.y, back.z * speed);
+            } else {
+                // Friction
+                playerBody.velocity.x *= 0.9;
+                playerBody.velocity.z *= 0.9;
+            }
+
+            // Smooth rotation via Angular Velocity
+            if (keys.a) playerBody.angularVelocity.y = turnSpeed;
+            else if (keys.d) playerBody.angularVelocity.y = -turnSpeed;
+            else playerBody.angularVelocity.y = 0;
+
+            if (keys.space && time - lastShootTime > 500) {
+                shootBullet(playerBody, playerMesh.quaternion);
+                lastShootTime = time;
+            }
+        }
+
+        function updateAI(time) {
+            enemies.forEach(e => {
+                if (e.dead) return;
+
+                // Simple: Turn towards player and move
+                const dx = playerBody.position.x - e.body.position.x;
+                const dz = playerBody.position.z - e.body.position.z;
+                const angleToPlayer = Math.atan2(dx, dz); // Correct for Cannon/Three orientation logic?
+
+                // Very Dumb AI: Rotate slowly towards angle
+                // e.body.quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), angleToPlayer); (Instant turn)
+
+                // Move forward occasionally
+                if (Math.random() < 0.02) {
+                    const forward = new CANNON.Vec3(0, 0, 1);
+                    e.body.quaternion.vmult(forward, forward);
+                    e.body.velocity.set(forward.x * 5, 0, forward.z * 5);
+                }
+
+                // Shoot
+                if (Math.random() < 0.01 && time - e.lastShoot > 1000) {
+                    shootBullet(e.body, e.body.quaternion);
+                    e.lastShoot = time;
+                }
+            });
+
+            // Check Win
+            const alive = enemies.filter(e => !e.dead);
+            document.getElementById('status').innerText = `ENEMIES LEFT: ${alive.length}`;
+            if (alive.length === 0) endGame(true);
+        }
+
+        function shootBullet(sourceBody, quat) {
+            const bulletShape = new CANNON.Sphere(0.3);
+            const bulletBody = new CANNON.Body({ mass: 1, fixedRotation: true });
+            bulletBody.addShape(bulletShape);
+
+            const forward = new CANNON.Vec3(0, 0, 1);
+            quat.vmult(forward, forward);
+
+            // Spawn in front
+            bulletBody.position.set(
+                sourceBody.position.x + forward.x * 2.5,
+                sourceBody.position.y,
+                sourceBody.position.z + forward.z * 2.5
+            );
+
+            bulletBody.velocity.set(forward.x * 40, 0, forward.z * 40);
+
+            // Material Bounciness
+            // (Ideally we set material properties, for now just relying on high mass/speed)
+
+            world.addBody(bulletBody);
+
+            const bulletMesh = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshBasicMaterial({ color: 0xffff00 }));
+            bulletMesh.position.copy(bulletBody.position);
+            scene.add(bulletMesh);
+
+            // Trail
+            const trailGeo = new THREE.BufferGeometry();
+            const trailMat = new THREE.LineBasicMaterial({ color: 0xffaa00 });
+            const trail = new THREE.Line(trailGeo, trailMat);
+            scene.add(trail);
+
+            bullets.push({ body: bulletBody, mesh: bulletMesh, trail, history: [], life: 300 }); // 300 frames life
+        }
+
+        function updateBullets() {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                b.life--;
+                b.mesh.position.copy(b.body.position);
+
+                // Update Trail
+                b.history.push(b.mesh.position.clone());
+                if (b.history.length > 10) b.history.shift();
+                b.trail.geometry.setFromPoints(b.history);
+
+                if (b.life <= 0) {
+                    removeBullet(i);
+                    continue;
+                }
+
+                // Hit Logic (Simple Distance)
+                // Player
+                if (b.mesh.position.distanceTo(playerBody.position) < 2) {
+                    endGame(false);
+                    removeBullet(i);
+                    continue;
+                }
+
+                // Enemies
+                enemies.forEach(e => {
+                    if (!e.dead && b.mesh.position.distanceTo(e.body.position) < 2) {
+                        e.dead = true;
+                        world.removeBody(e.body);
+                        e.mesh.visible = false;
+                        removeBullet(i);
+                    }
+                });
+            }
+        }
+
+        function removeBullet(i) {
+            const b = bullets[i];
+            world.removeBody(b.body);
+            scene.remove(b.mesh);
+            scene.remove(b.trail);
+            bullets.splice(i, 1);
+        }
+
+        function endGame(won) {
+            gameActive = false;
+            const h1 = document.querySelector('#startScreen h1');
+            const p = document.querySelector('#startScreen p');
+            const btn = document.getElementById('startBtn');
+            const screen = document.getElementById('startScreen');
+
+            screen.style.display = 'flex';
+            btn.style.display = 'none';
+
+            if (won) {
+                h1.innerText = "VICTORY!";
+                p.innerText = "Tank Commander Supreme! +25 Coins";
+                mainState.playerCoins[activePlayerId] += 25;
+            } else {
+                h1.innerText = "DEFEAT!";
+                p.innerText = "Your tank was scrap metal. +5 Coins";
+                mainState.playerCoins[activePlayerId] += 5;
+            }
+
+            localStorage.setItem('partyBoardState', JSON.stringify(mainState));
+            setTimeout(() => window.location.href = 'index.html', 3000);
+        }
+
+        init();
+    </script>
+    <script src="assets/mobile_controls.js"></script>
+</body>
+
+</html>
