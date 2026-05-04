@@ -341,6 +341,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@18.6.4/dist/tween.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
@@ -593,16 +596,49 @@
             discardPile3D.children.forEach(c => discardPile3D.remove(c));
 
             const cardGeo = new THREE.BoxGeometry(2.2, 0.05, 3.2);
-            const cardMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            // Load card back texture
+            const textureLoader = new THREE.TextureLoader();
+            const cardBackTexture = textureLoader.load('assets/card_back.png');
+            // Materials: [Right, Left, Top (Back), Bottom (Face), Front, Back]
+            // We want Top to be the Card Back. Bottom to be White (Face down usually, or Face up?)
+            // Draw Pile: Face Down -> Top is visible -> Card Back.
+            // Discard Pile: Face Up -> Top is visible -> Card Face?
+            // User said "create a stack of cards that the players draw from and a stack that they discard to use the file".
+            // Let's make the draw pile show the card back on top.
+            // Discard pile show the card back? Or face? Usually face up. But let's assume standard deck behavior.
 
-            for (let i = 0; i < deck.length; i++) {
-                const cardMesh = new THREE.Mesh(cardGeo, cardMat);
+            const cardBackMat = new THREE.MeshStandardMaterial({ map: cardBackTexture });
+            const cardEdgeMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const cardFaceMat = new THREE.MeshStandardMaterial({ color: 0xffffff }); // Placeholder for face
+
+            const materials = [
+                cardEdgeMat, // x+
+                cardEdgeMat, // x-
+                cardBackMat, // y+ (Top) - THE BACK
+                cardFaceMat, // y- (Bottom) - The Face
+                cardEdgeMat, // z+
+                cardEdgeMat  // z-
+            ];
+
+            // Re-render piles
+            // Limit visual stack height for performance
+            const drawCount = Math.min(deck.length, 10);
+            for (let i = 0; i < drawCount; i++) {
+                const cardMesh = new THREE.Mesh(cardGeo, materials);
                 cardMesh.position.y = i * 0.06;
+                cardMesh.castShadow = true;
                 drawPile3D.add(cardMesh);
             }
-            for (let i = 0; i < discardPile.length; i++) {
-                const cardMesh = new THREE.Mesh(cardGeo, cardMat);
+
+            // Discard Pile (Showing top card face ideally, but for now we haven't implemented unique textures per card face)
+            // If the user wants to "use the file" for discard too, maybe they mean the back is visible?
+            // Let's apply the back to the discard pile too for visual consistency unless we have face textures.
+            const discardCount = Math.min(discardPile.length, 10);
+            for (let i = 0; i < discardCount; i++) {
+                const cardMesh = new THREE.Mesh(cardGeo, materials);
                 cardMesh.position.y = i * 0.06;
+                cardMesh.rotation.y = Math.random() * 0.5 - 0.25; // Messy pile
+                cardMesh.castShadow = true;
                 discardPile3D.add(cardMesh);
             }
         }
@@ -834,31 +870,55 @@
             const spaceSize = 2, spaceGap = 0.5, totalSize = spaceSize + spaceGap, zOffset = -8, startPlatformOffset = -4;
             const pathData = [
                 { pos: { x: 0, z: 0 }, next: [1], type: 'start' }, { pos: { x: 1, z: 0 }, next: [2], type: 'blue' },
-                { pos: { x: 2, z: 0 }, next: [3], type: 'red' }, { pos: { x: 3, z: 0 }, next: [4], type: 'item' },
+                { pos: { x: 2, z: 0 }, next: [3], type: 'red' }, { pos: { x: 3, z: 0 }, next: [4], type: 'mini_coin' },
                 { pos: { x: 4, z: 0 }, next: [5], type: 'blue' }, { pos: { x: 5, z: 0 }, next: [6], type: 'blue' },
                 { pos: { x: 5, z: 1 }, next: [7], type: 'blue' }, { pos: { x: 5, z: 2 }, next: [8], type: 'event' },
                 { pos: { x: 4, z: 2 }, next: [9], type: 'blue' }, { pos: { x: 3, z: 2 }, next: [10], type: 'red' },
                 { pos: { x: 2, z: 2 }, next: [11], type: 'blue' }, { pos: { x: 1, z: 2 }, next: [12], type: 'red' },
-                { pos: { x: 0, z: 2 }, next: [13], type: 'item' }, { pos: { x: -1, z: 2 }, next: [14], type: 'blue' },
+                { pos: { x: 0, z: 2 }, next: [13], type: 'mini_tank' }, { pos: { x: -1, z: 2 }, next: [14], type: 'blue' },
                 { pos: { x: -1, z: 3 }, next: [15], type: 'blue' }, { pos: { x: -1, z: 4 }, next: [16], type: 'red' },
-                { pos: { x: 0, z: 4 }, next: [17], type: 'blue' }, { pos: { x: 1, z: 4 }, next: [18], type: 'event' },
+                { pos: { x: 0, z: 4 }, next: [17], type: 'blue' }, { pos: { x: 1, z: 4 }, next: [18], type: 'mini_race' },
                 { pos: { x: 2, z: 4 }, next: [19], type: 'blue' }, { pos: { x: 3, z: 4 }, next: [20], type: 'red' },
                 { pos: { x: 4, z: 4 }, next: [21], type: 'blue' }, { pos: { x: 5, z: 4 }, next: [22], type: 'blue' },
-                { pos: { x: 6, z: 4 }, next: [23], type: 'item' }, { pos: { x: 7, z: 4 }, next: [24], type: 'blue' },
+                { pos: { x: 6, z: 4 }, next: [23], type: 'mini_sumo' }, { pos: { x: 7, z: 4 }, next: [24], type: 'blue' },
                 { pos: { x: 8, z: 4 }, next: [25], type: 'red' }, { pos: { x: 8, z: 3 }, next: [26], type: 'blue' },
                 { pos: { x: 8, z: 2 }, next: [27], type: 'blue' }, { pos: { x: 8, z: 1 }, next: [28], type: 'red' },
-                { pos: { x: 8, z: 0 }, next: [29], type: 'event' }, { pos: { x: 9, z: 0 }, next: [30], type: 'blue' },
+                { pos: { x: 8, z: 0 }, next: [29], type: 'mini_platform' }, { pos: { x: 9, z: 0 }, next: [30], type: 'blue' },
                 { pos: { x: 10, z: 0 }, next: [], type: 'finish' }
             ];
+
+            // Load Tile Textures
+            const textureLoader = new THREE.TextureLoader();
+            const tileTextures = {
+                'mini_coin': textureLoader.load('assets/mini-game tiles/coin-collector.png'),
+                'mini_tank': textureLoader.load('assets/mini-game tiles/tank-trouble.png'),
+                'mini_race': textureLoader.load('assets/mini-game tiles/road-race.png'),
+                'mini_sumo': textureLoader.load('assets/mini-game tiles/sumo-survivor.png'),
+                'mini_platform': textureLoader.load('assets/mini-game tiles/platform-panic.png'),
+                'mini_laser': textureLoader.load('assets/mini-game tiles/laser-lockup.png'),
+            };
+
             const typeColors = {
                 'start': 0x4ade80, 'finish': 0xfacc15, 'blue': 0x3b82f6,
                 'red': 0xef4444, 'item': 0xeab308, 'event': 0xa855f7, 'star': 0x3b82f6
             };
+
             pathData.forEach((data, index) => {
                 const isStart = index === 0;
                 const currentSpaceSize = isStart ? 5 : spaceSize;
                 const spaceGeometry = new THREE.BoxGeometry(currentSpaceSize, 0.2, currentSpaceSize);
-                const spaceMaterial = new THREE.MeshStandardMaterial({ color: typeColors[data.type] || 0xffffff });
+
+                let spaceMaterial;
+                if (data.type.startsWith('mini_') && tileTextures[data.type]) {
+                    // Apply texture to top face
+                    const tex = tileTextures[data.type];
+                    const matTop = new THREE.MeshStandardMaterial({ map: tex });
+                    const matSide = new THREE.MeshStandardMaterial({ color: 0xffffff });
+                    spaceMaterial = [matSide, matSide, matTop, matSide, matSide, matSide];
+                } else {
+                    spaceMaterial = new THREE.MeshStandardMaterial({ color: typeColors[data.type] || 0xffffff });
+                }
+
                 const space = new THREE.Mesh(spaceGeometry, spaceMaterial);
                 const yPos = isStart ? 2.0 : 0.1;
                 const zPos = (data.pos.z * totalSize) + zOffset + (isStart ? startPlatformOffset : 0);
@@ -868,12 +928,16 @@
                 space.receiveShadow = true;
                 scene.add(space);
                 boardSpaces.push({ mesh: space, position: position, next: data.next, previous: [], type: data.type });
-                if (data.type === 'item' || data.type === 'event') {
-                    const iconGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
-                    const iconMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: typeColors[data.type], emissiveIntensity: 1 });
-                    const icon = new THREE.Mesh(iconGeo, iconMat);
-                    icon.position.set(position.x, position.y + 0.2, position.z);
-                    scene.add(icon);
+
+                if (data.type === 'item' || data.type === 'event' || data.type.startsWith('mini_')) {
+                    // For now, no extra icon above mini-game tiles, the tile is the icon
+                    if (!data.type.startsWith('mini_')) {
+                        const iconGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
+                        const iconMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: typeColors[data.type] || 0xffffff, emissiveIntensity: 1 });
+                        const icon = new THREE.Mesh(iconGeo, iconMat);
+                        icon.position.set(position.x, position.y + 0.2, position.z);
+                        scene.add(icon);
+                    }
                 }
             });
             boardSpaces.forEach((space, index) => {
@@ -884,26 +948,49 @@
         }
         function createPlayers(selectedIndex) {
             const loader = new THREE.GLTFLoader();
-            const playerModels = ['players/jonah.glb', 'players/kyle.glb', 'players/rochelle.glb', 'players/vickie.glb'];
+            // Using new GLB players. Mapping to 4 slots.
+            const playerModels = ['players/kyle.glb', 'players/rochelle.glb', 'players/vickie.glb', 'players/eric.glb'];
             const startPosition = boardSpaces[0].position;
             playerModels.forEach((model, i) => {
                 loader.load(model, (gltf) => {
-                    const modelMesh = gltf.scene;
-                    const box = new THREE.Box3().setFromObject(modelMesh);
+                    const object = gltf.scene;
+
+                    object.traverse(function (child) {
+                        if (child.isMesh) {
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                            // Ensure materials are visible (sometimes GLB defaults need tweaking)
+                            if (child.material) {
+                                child.material.roughness = 0.5;
+                                child.material.metalness = 0.0;
+                            }
+                        }
+                    });
+
+                    // GLB Scale - usually 1 unit = 1 meter. Our board is fairly large.
+                    // Previous FBX was 0.02 (2cm). If GLB is in meters, 0.02 * 100 = 2.
+                    // Let's try 1.5 as consistent with standard size.
+                    object.scale.set(1.5, 1.5, 1.5);
+
+                    const box = new THREE.Box3().setFromObject(object);
                     const center = new THREE.Vector3();
                     box.getCenter(center);
-                    modelMesh.position.y -= box.min.y;
-                    modelMesh.position.x -= center.x;
-                    modelMesh.position.z -= center.z;
+                    object.position.y -= box.min.y;
+                    object.position.x -= center.x;
+                    object.position.z -= center.z;
+
                     const playerGroup = new THREE.Group();
-                    playerGroup.add(modelMesh);
-                    playerGroup.scale.set(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
-                    playerGroup.traverse(node => { if (node.isMesh) node.castShadow = true; });
+                    playerGroup.add(object);
+
+                    // No color fallback needed for GLB as they should have textures.
+
                     const offsetX = (i % 2 === 0 ? -PLAYER_START_OFFSET : PLAYER_START_OFFSET);
                     const offsetZ = (i < 2 ? -PLAYER_START_OFFSET : PLAYER_START_OFFSET);
                     playerGroup.position.set(startPosition.x + offsetX, startPosition.y + PLAYER_Y_OFFSET, startPosition.z + offsetZ);
+
                     scene.add(playerGroup);
                     players.push({ mesh: playerGroup, positionIndex: 0, previousPositionIndex: 0, id: i });
+
                     if (i === selectedIndex) {
                         activePlayerIndex = i;
                         updateBoardView();

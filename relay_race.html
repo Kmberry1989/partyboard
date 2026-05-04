@@ -87,6 +87,9 @@
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
 
     <script>
         let scene, camera, renderer, world;
@@ -154,6 +157,13 @@
             ground.rotation.x = -Math.PI / 2;
             ground.position.y = -0.1;
             scene.add(ground);
+
+            // Physics Ground
+            const groundBody = new CANNON.Body({ mass: 0 }); // Static
+            groundBody.addShape(new CANNON.Plane());
+            groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            groundBody.position.y = -0.1;
+            world.addBody(groundBody);
 
             // Track Mesh (Extrude path?)
             // Simplify: Just flat planes connecting waypoints for visuals, Walls collision
@@ -228,11 +238,22 @@
         }
 
         function spawnKarts() {
+            // Racers: Kyle, Rochelle, Vickie, Eric (or Donald)
+            // Using GLB files now
+
+            const modelList = ['racers/kyle_racer.glb', 'racers/rochelle _racer.glb', 'racers/vickie_racer.glb', 'racers/eric_racer.glb'];
+
+            // "karts" index 0 is the human player.
+            // We ensure index 0 maps to the active player's model.
+
+            const playerModel = modelList[activePlayerId] || modelList[0];
+            const botModels = modelList.filter((m, i) => i !== activePlayerId);
+
             // Player
             const pStart = waypoints[0].clone();
             pStart.y = 2;
             playerBody = createKartBody(pStart, 0xffff00);
-            playerMesh = createKartMesh(0x00ff00); // Green
+            playerMesh = createKartMesh(0x00ff00, playerModel);
             scene.add(playerMesh);
             karts.push({ body: playerBody, mesh: playerMesh, isPlayer: true, lap: 0, nextWp: 1, dist: 0 });
 
@@ -242,7 +263,7 @@
                 const offset = new THREE.Vector3((i + 1) * 2, 0, -(i + 1) * 2); // Staggered grid
                 const pos = pStart.clone().add(offset);
                 const body = createKartBody(pos, colors[i]);
-                const mesh = createKartMesh(colors[i]);
+                const mesh = createKartMesh(colors[i], botModels[botModels.length > i ? i : 0]);
                 scene.add(mesh);
                 karts.push({ body, mesh, isPlayer: false, lap: 0, nextWp: 1, speedFactor: 0.9 + Math.random() * 0.2 });
             }
@@ -260,30 +281,45 @@
             return body;
         }
 
-        function createKartMesh(color) {
+        function createKartMesh(color, modelName) {
             const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 3), new THREE.MeshStandardMaterial({ color }));
-            body.castShadow = true;
-            group.add(body);
 
-            // Wheels
-            const wGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.4);
-            const wMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-            const positions = [
-                { x: -1.2, z: 1 }, { x: 1.2, z: 1 },
-                { x: -1.2, z: -1 }, { x: 1.2, z: -1 }
-            ];
-            positions.forEach(p => {
-                const w = new THREE.Mesh(wGeo, wMat);
-                w.rotation.z = Math.PI / 2;
-                w.position.set(p.x, -0.2, p.z);
-                group.add(w);
-            });
+            // Placeholder while loading
+            const placeholder = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 3), new THREE.MeshStandardMaterial({ color, visible: false }));
+            group.add(placeholder);
 
-            // Driver Head
-            const h = new THREE.Mesh(new THREE.SphereGeometry(0.6), new THREE.MeshStandardMaterial({ color: 0xffdbac }));
-            h.position.set(0, 0.8, -0.5);
-            group.add(h);
+            const loader = new THREE.GLTFLoader();
+            const path = `players/${modelName}`;
+
+            loader.load(path, (gltf) => {
+                const object = gltf.scene;
+
+                object.traverse(function (child) {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        if (child.material) {
+                            child.material.roughness = 0.5;
+                            child.material.metalness = 0.0;
+                        }
+                    }
+                });
+
+                // Scale racer models
+                object.scale.set(1.5, 1.5, 1.5);
+
+                // Center/Adjust
+                // Rotate to face forward if needed
+                // User said they were backwards with PI. So let's try 0.
+                object.rotation.y = 0;
+
+                // Adjust position relative to physics body center
+                object.position.y = -0.6;
+
+                group.add(object);
+                // Remove placeholder if we want
+                placeholder.visible = false;
+            }, undefined, (e) => console.error(e));
 
             return group;
         }
@@ -338,15 +374,32 @@
             }
 
             // Camera follow
-            const pPos = playerBody.position;
-            const pQuat = playerBody.quaternion;
-            const offset = new THREE.Vector3(0, 5, -10); // Behind and Up
-            offset.applyQuaternion(pQuat); // Rotate offset by player rot
-            // Just use simple follow
-            const camTarget = new THREE.Vector3(pPos.x, pPos.y + 6, pPos.z + 12);
-            // Smooth lerp
-            camera.position.lerp(camTarget, 0.1);
-            camera.lookAt(pPos);
+            if (playerBody && !isNaN(playerBody.position.x)) {
+                const pPos = playerBody.position;
+                const pQuat = playerBody.quaternion;
+
+                // Better Chase Camera
+                // forward = (0,0,1) rotated by quat.
+
+                // Moved closer as requested: Up 3, Behind 6
+                const relativeCameraOffset = new THREE.Vector3(0, 3, -6);
+
+                const cameraOffset = relativeCameraOffset.applyQuaternion(pQuat);
+                const targetPos = new THREE.Vector3().copy(pPos).add(cameraOffset);
+
+                // Ensure camera has a valid start position
+                if (camera.position.lengthSq() === 0) camera.position.copy(targetPos);
+
+                // Smoothly move camera there
+                camera.position.lerp(targetPos, 0.1);
+
+                // Look slightly ahead of player
+                const relativeLookAt = new THREE.Vector3(0, 1, 10); // Look 10 units forward, slightly lower
+                const lookAtOffset = relativeLookAt.applyQuaternion(pQuat);
+                const lookAtTarget = new THREE.Vector3().copy(pPos).add(lookAtOffset);
+
+                camera.lookAt(lookAtTarget);
+            }
 
             // Sync Visuals & Check Laps
             karts.forEach(k => {
@@ -357,6 +410,8 @@
 
             // Updates HUD
             updateHUD();
+
+            renderer.render(scene, camera);
         }
 
         function updateKart(kart, inputs) {
